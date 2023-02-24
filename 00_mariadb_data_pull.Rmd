@@ -1,0 +1,198 @@
+---
+title: "MariaDB Data Pull"
+---
+
+# LIBRARIES
+```{r setup, include=FALSE}
+# sql connect
+library(odbc)
+library(DBI)
+library(arrow)
+
+# core packages
+library(tidyverse)
+library(dbplyr)
+library(timetk)
+library(tidyquant)
+library(janitor)
+library(lubridate)
+library(zoo)
+
+# get data
+library(fredr)
+library(tidycensus)
+
+
+date <- today()
+options(scipen = 9999)
+
+
+DS_HOST    <- Sys.getenv("DS_HOST")
+DS_DB_NAME <- Sys.getenv("DS_DB_NAME")
+SQL_ID     <- Sys.getenv("SQL_ID")
+SQL_PW     <- Sys.getenv("SQL_PW")
+
+
+conn <- dbConnect(RMariaDB::MariaDB(),
+                  host     = DS_HOST,
+                  dbname   = DS_DB_NAME,
+                  username = SQL_ID,
+                  password = SQL_PW)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, eval=FALSE}
+dbListTables(conn)
+```
+
+
+
+## SQL Holiday Calendar Export
+```{sql connection=conn, output.var="holidays"}
+select *
+from holidays
+```
+
+```{r}
+# live file
+write_parquet(holidays, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\forecasting_framework\\00_data\\holidays.parquet"))
+
+# archive
+write_parquet(holidays, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\forecasting_framework\\00_data\\archive\\{date}_holidays.parquet"))
+```
+
+
+
+## SQL Combined Active Export
+```{sql connection=conn, output.var="combined_active"}
+select *
+from combined_active
+```
+
+```{r}
+# live file
+write_parquet(combined_active, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\forecasting_framework\\00_data\\combined_active_raw.parquet"))
+
+# archive
+write_parquet(combined_active, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\forecasting_framework\\00_data\\archive\\{date}_combined_active_raw.parquet"))
+```
+
+
+
+
+## SQL Listings Export
+```{sql connection=conn, output.var="combined_listings"}
+select *
+from combined_listings
+where country="US"
+```
+
+```{r}
+# live file
+write_parquet(combined_listings, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\forecasting_framework\\00_data\\combined_listings_raw.parquet"))
+
+# archive locally
+write_parquet(combined_listings, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\forecasting_framework\\00_data\\archive\\{date}_combined_listings_raw.parquet"))
+```
+
+
+
+## SQL Calendar Export
+```{sql connection=conn, output.var="combined_calendar"}
+select *
+from combined_calendar
+limit 10
+```
+
+```{r}
+# live file
+write_parquet(combined_calendar, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\forecasting_framework\\00_data\\combined_calendar_raw.parquet"))
+
+# archive locally
+write_parquet(combined_calendar, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\forecasting_framework\\00_data\\archive\\{date}_combined_calendar_raw.parquet"))
+```
+
+
+
+## SQL Random Export
+```{sql connection=conn, output.var="random_task"}
+select *
+from combined_calendar
+limit 1000
+```
+
+```{r}
+random_task
+```
+
+
+
+
+## Disconnect SQL
+```{r}
+dbDisconnect(conn)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
