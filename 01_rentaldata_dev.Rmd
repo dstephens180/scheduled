@@ -51,6 +51,28 @@ listings_cleaned <- read_parquet("C:\\Users\\DavidStephens\\Desktop\\Github\\for
 
 
 ```{r}
+dbListTables(dev_conn)
+```
+
+
+
+```{sql connection=dev_conn, output.var="thomas_calendar"}
+select *
+from thomas_calendar
+where listing_id = "a_14351165"
+order by date
+limit 2000
+
+```
+
+
+```{r}
+thomas_calendar
+```
+
+
+
+```{r}
 dbWriteTable(conn = dev_conn, 
              name = "calendar_listings_cleaned", 
              value = calendar_listings_cleaned, 
