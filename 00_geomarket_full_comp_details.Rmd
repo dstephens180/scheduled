@@ -1,0 +1,224 @@
+---
+title: "rented_art Geomarket Full & Comps Details Data Extract"
+---
+
+
+# LIBRARIES
+```{r setup, include=FALSE}
+
+# sql connect
+library(odbc)
+library(DBI)
+library(arrow)
+
+# core packages
+library(tidyverse)
+library(dbplyr)
+library(timetk)
+library(tidyquant)
+library(janitor)
+library(lubridate)
+library(stringi)
+library(jsonlite)
+library(tidyjson)
+library(data.table)
+
+
+
+date <- today()
+options(scipen = 9999)
+options(dplyr.summarise.inform = FALSE)
+
+
+source("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\R\\ds1_new_model_functions.R")
+source("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\R\\ds1_calendar_functions.R")
+
+
+
+DS_HOST    <- Sys.getenv("DS_HOST")
+DS_DB_NAME <- Sys.getenv("DS_DB_NAME")
+SQL_ID     <- Sys.getenv("SQL_ID")
+SQL_PW     <- Sys.getenv("SQL_PW")
+
+
+conn <- dbConnect(RMariaDB::MariaDB(),
+                  host     = DS_HOST,
+                  dbname   = DS_DB_NAME,
+                  username = SQL_ID,
+                  password = SQL_PW)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# 0.0 DATA
+```{r}
+art_listing_ids_cleaned <- read_parquet("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\art_listing_ids_cleaned.parquet")
+```
+
+
+
+
+# 1.0 DATA PREP
+## Prepare Data for Joining after Loop
+```{r}
+art_listing_full_comps_tbl <- art_listing_ids_cleaned %>%
+  select(id, full, comps) %>%
+  rowid_to_column(var = "rowid_column")
+
+
+# sample for testing
+sample_tbl <- art_listing_full_comps_tbl %>%
+  head(5)
+
+
+
+# full data only 
+full_extract_tbl <- str_split_fixed(art_listing_full_comps_tbl$full, ", ", n = 3000) %>% 
+  as_tibble() %>%
+  bind_cols(art_listing_full_comps_tbl) %>%
+  relocate(rowid_column, id) %>%
+  select(-full, -comps)
+
+
+full_extract_longer <- full_extract_tbl %>%
+  pivot_longer(cols = starts_with("V"), values_drop_na = T) %>%
+  filter(value != "") %>%
+  select(-name) %>%
+  rename(listing_id = value) %>%
+  mutate(type = "full")
+
+
+
+
+
+# comps data only 
+comps_extract_tbl <- str_split_fixed(art_listing_full_comps_tbl$comps, ", ", n = 3000) %>% 
+  as_tibble() %>%
+  bind_cols(art_listing_full_comps_tbl) %>%
+  relocate(rowid_column, id) %>%
+  select(-full, -comps)
+
+
+comps_extract_longer <- comps_extract_tbl %>%
+  pivot_longer(cols = starts_with("V"), values_drop_na = T) %>%
+  filter(value != "") %>%
+  select(-name) %>%
+  rename(listing_id = value) %>%
+  mutate(type = "comps")
+
+
+
+# this is your full tbl that you will use to join after the for loop
+full_comps_extract_longer <- full_extract_longer %>%
+  bind_rows(comps_extract_longer)
+  
+```
+
+
+
+
+# 2.0 FOR LOOP
+## Full listings first
+```{r}
+
+# get unique listing_ids
+unique_listing_ids <- full_extract_longer %>%
+  bind_rows(comps_extract_longer) %>%
+  distinct(listing_id, .keep_all = F) %>%
+  rowid_to_column(var = "identifier")
+
+
+art_listing_vector <- as.vector(unique_listing_ids %>% pull(identifier))
+
+
+### FOR LOOP ###
+# create empty vector
+all_container_data = c()
+
+
+calendar <- dplyr::tbl(conn, "combined_calendar")
+active_listings <- dplyr::tbl(conn, "combined_active")
+location_listings <- dplyr::tbl(conn, "combined_listings")
+
+
+
+for (i in art_listing_vector) {
+  
+  selected_column <- i
+  
+  art_id_listing_ids <- 
+    as.vector(
+      unique_listing_ids %>%
+        dplyr::filter(identifier == selected_column) %>%
+        dplyr::pull(listing_id))
+  
+    
+  initial_filter <- calendar %>%
+    dplyr::inner_join(active_listings, by = "listing_id") %>%
+    dplyr::inner_join(location_listings, by = "listing_id") %>%
+    dplyr::filter(listing_id %in% local(art_id_listing_ids)) %>%
+    dplyr::select(listing_id, date, rate, bedrooms, bathrooms, sleeps, rating, reviews, room_type, latitude, longitude, available) %>%
+    dplyr::mutate(days_out_7  = ifelse(date >= as.Date(today()-1) & date <= as.Date(today()-1+7), available, NA),
+                  days_out_14 = ifelse(date >= as.Date(today()-1) & date <= as.Date(today()-1+15), available, NA)) %>%
+    dplyr::group_by(listing_id, bedrooms, bathrooms, sleeps, rating, reviews, room_type, latitude, longitude) %>%
+    dplyr::summarise(mean_rate = mean(round(rate, 0), na.rm = T), 
+                     std_dev = sd(round(rate, 0), na.rm = T),
+                     avail_7_days_out = mean(days_out_7, na.rm = T),
+                     avail_14_days_out = mean(days_out_14, na.rm = T)) %>%
+    dplyr::ungroup() %>%
+    dplyr::collect() %>%
+    dplyr::distinct()
+
+  
+  # bind rows of all_container_data
+  all_container_data <- bind_rows(all_container_data, initial_filter)
+  
+}
+
+
+
+# join with id's
+geomarket_full_comps_details_tbl <- full_comps_extract_longer %>%
+  left_join(all_container_data, by = "listing_id") %>%
+  relocate(listing_id) %>%
+  drop_na()
+```
+
+
+
+
+# 3.0 SAVE & DISCONNECT
+## Save as parquet
+```{r}
+# live file in scheduled/00_data folder
+write_parquet(geomarket_full_comps_details_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\comps_full_geomarket_details_tbl.parquet")
+
+
+# live file for shiny in art_replica/shiny folder
+write_parquet(geomarket_full_comps_details_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\comps_full_geomarket_details_tbl.parquet")
+
+
+
+
+# time-stamped archive file
+write_parquet(geomarket_full_comps_details_tbl, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\archive\\{date}_comps_full_geomarket_details_tbl.parquet"))
+```
+
+
+
+
+
+## Disconnect SQL
+```{r}
+dbDisconnect(conn)
+```
+
+
+
+
+
+
+
+
+

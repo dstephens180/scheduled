@@ -5,6 +5,7 @@ title: "rentedrmsprod"
 
 # LIBRARIES
 ```{r setup, include=FALSE}
+
 # sql connect
 library(odbc)
 library(DBI)
@@ -22,9 +23,6 @@ library(jsonlite)
 library(tidyjson)
 library(data.table)
 
-# get data
-library(fredr)
-library(tidycensus)
 
 
 date <- today()
@@ -54,6 +52,7 @@ knitr::opts_chunk$set(echo = TRUE)
 select cast(id as CHAR), cast(accounts_id as CHAR), cast(listing_name as CHAR), cast(geomarket as CHAR), cast(rates as CHAR)
 from art_listings
 where sync = 1
+
 ```
 
 
@@ -68,6 +67,8 @@ from art_accounts
 ```{sql connection=prod_conn, output.var="prod_art_listings_details"}
 select cast(id as CHAR), cast(details as CHAR)
 from art_listings
+where sync = 1
+
 ```
 
 
@@ -111,6 +112,107 @@ prod_art_listings_unnested %>% glimpse()
 ```
 
 
+## Unnest rates
+```{r}
+
+prod_art_rates_unnested <- prod_art_listings %>%
+  rename(
+    id           = `cast(id as CHAR)`,
+    account_id   = `cast(accounts_id as CHAR)`,
+    listing_name = `cast(listing_name as CHAR)`,
+    geomarket    = `cast(geomarket as CHAR)`,
+    rates        = `cast(rates as CHAR)`
+  ) %>%
+  select(id, rates) %>%
+  rowid_to_column(var = "rowid_column")
+
+
+prod_art_rates_vector <- as.vector(prod_art_rates_unnested %>% pull(rowid_column))
+
+
+
+### FOR LOOP ###
+# create empty vector
+key_metrics_data = c()
+
+
+for (i in prod_art_rates_vector) {
+  
+  selected_column <- i
+  
+  inputs <- 
+    as.vector(
+      prod_art_rates_unnested %>%
+        dplyr::filter(rowid_column == selected_column) %>%
+        dplyr::pull(rates) %>%
+        jsonlite::fromJSON()) %>%
+    
+    # spread selected values as jstring to avoid "" throwing errors
+    tidyjson::spread_values(
+      max_rate            = tidyjson::jstring(max_rate),
+      min_rate            = tidyjson::jstring(min_rate),
+      suggested_base_rate = tidyjson::jstring(min_base_rate),
+      min_base_rate       = tidyjson::jstring(min_base_rate),
+      max_base_rate       = tidyjson::jstring(max_base_rate)
+    ) %>%
+    tibble::as_tibble() %>%
+    
+    # filter is for [1], or $inputs
+    dplyr::filter(document.id == "1")
+  
+  
+  
+  ### OUTPUTS ###
+  outputs <- 
+    as.vector(
+      prod_art_rates_unnested %>%
+        dplyr::filter(rowid_column == selected_column) %>%
+        dplyr::pull(rates) %>%
+        jsonlite::fromJSON())[[2]] %>%
+    
+    # spread selected values
+    tidyjson::spread_values(
+      model_rate     = tidyjson::jnumber(model_rate),
+      predicted_rate = tidyjson::jnumber(predicted_rate)
+    ) %>%
+    
+    # mean model & adjusted rates
+    dplyr::summarise(
+      mean_model_rate    = round(mean(model_rate)),
+      mean_adjusted_rate = round(mean(predicted_rate))
+    ) 
+  
+  
+  combined_tbl <- bind_cols(inputs, outputs) %>%
+    
+    # add rowid column for later joining
+    mutate(rowid_column = i) %>%
+    select(-document.id) %>%
+    
+    # clean up jstring (avoiding errors) to numeric
+    mutate(max_rate = ifelse(max_rate == "", NA, as.numeric(max_rate)),
+           min_rate = ifelse(min_rate == "", NA, as.numeric(min_rate)),
+           suggested_base_rate = ifelse(suggested_base_rate == "", NA, as.numeric(suggested_base_rate)),
+           min_base_rate = ifelse(min_base_rate == "", NA, as.numeric(min_base_rate)),
+           max_base_rate = ifelse(max_base_rate == "", NA, as.numeric(max_base_rate)))
+  
+  
+  # bind rows of all_container_data
+  key_metrics_data <- bind_rows(key_metrics_data, combined_tbl)
+  
+}
+
+
+
+# join with id's
+key_metrics_cleaned <- key_metrics_data %>%
+  left_join(prod_art_rates_unnested %>% select(rowid_column, id), by = "rowid_column") %>%
+  select(-rowid_column) %>%
+  relocate(id)
+```
+
+
+
 ## Join listings & accounts
 ```{r}
 prod_art_listings_cleaned <- prod_art_listings %>%
@@ -134,7 +236,12 @@ prod_art_accounts_cleaned <- prod_art_accounts %>%
 
 prod_listings_joined <- prod_art_listings_cleaned %>%
   left_join(prod_art_accounts_cleaned, by = "account_id") %>%
+  left_join(key_metrics_cleaned, by = "id") %>%
   filter(active == "active")
+
+
+
+prod_listings_joined %>% glimpse()
 ```
 
 
@@ -157,8 +264,15 @@ geomarket_cleaned_tbl <- prod_listings_joined %>%
   unnest_wider(geomarket_extract) %>%
   apply(2, function(y) sapply(y, function(x) paste(unlist(x), collapse = ", "))) %>%
   as_tibble() %>%
-  select(id, account_id, account_name, listing_name, full, comps, rates) %>%
-  mutate(id = as.integer(id)) %>%
+  select(id, account_id, account_name, listing_name, full, comps, max_rate, min_rate, suggested_base_rate, min_base_rate, max_base_rate, mean_model_rate, mean_adjusted_rate) %>%
+  mutate(id = as.integer(id),
+         max_rate = as.numeric(max_rate),
+         min_rate = as.numeric(min_rate),
+         suggested_base_rate = as.numeric(suggested_base_rate),
+         min_base_rate = as.numeric(min_base_rate),
+         max_base_rate = as.numeric(max_base_rate),
+         mean_model_rate = as.numeric(mean_model_rate),
+         mean_adjusted_rate = as.numeric(mean_adjusted_rate)) %>%
   filter(full != "",
          comps != "")
 
