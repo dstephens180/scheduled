@@ -1,0 +1,636 @@
+---
+title: "rentedrmsprod Nested Forecast"
+---
+
+
+# LIBRARIES
+```{r setup, include=FALSE}
+
+# sql connect
+library(odbc)
+library(DBI)
+library(arrow)
+
+# core packages
+library(tidyverse)
+library(dbplyr)
+library(timetk)
+library(tidyquant)
+library(janitor)
+library(lubridate)
+library(stringi)
+library(jsonlite)
+library(tidyjson)
+library(data.table)
+library(arrow)
+
+# visualization
+library(gt)
+library(scales)
+library(plotly)
+
+# time series ml
+library(tidymodels)
+library(modeltime)
+library(modeltime.ensemble)
+library(modeltime.resample)
+library(anomalize)
+library(prophet)
+library(rules)
+library(trelliscopejs)
+library(ranger)
+library(randomForest)
+library(recipes)
+library(kknn)
+library(kernlab)
+library(thief)
+library(Cubist)
+
+# Timing & Parallel Processing
+library(future)
+library(doFuture)
+library(parallel)
+library(bundle)
+
+library(blastula)
+
+
+source("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\R\\ds1_new_model_functions.R")
+source("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\R\\ds1_calendar_functions.R")
+
+
+date <- today()
+options(scipen = 9999)
+
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+# --
+# 0.0 SQL DATA
+## Raw Active Listings Data
+```{r}
+unnested_prepared_best_refit_tbl <- read_rds("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\ds_historical_listing_rates_forecast.rds")
+
+unnested_prepared_best_refit_tbl %>% glimpse()
+```
+
+
+## External Regressor Data
+```{r}
+holidays_prepared <- prepare_holidays(conn, country = "US")
+
+inflation_join <- read_rds("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\inflation.rds") %>%
+  dplyr::mutate(inflation = log1p(inflation)) 
+
+```
+
+
+## Set end_date_forecast & horizon
+```{r}
+end_date_forecast <- max(unnested_prepared_best_refit_tbl$date) + 365
+horizon <- 365
+```
+
+
+
+
+# --
+# 1.0 DATA PREP
+## Create Full Dataset
+```{r}
+full_data_tbl <- unnested_prepared_best_refit_tbl %>%
+  
+  # global changes
+  mutate(rate = log1p(rate)) %>%
+  arrange(listing_id, date) %>%
+  
+  # create future frame
+  group_by(listing_id) %>%
+  future_frame(
+    .date_var   = date,
+    .length_out = horizon,
+    .bind_data  = TRUE) %>%
+  ungroup() %>%
+  
+  # fourier, lags & slidify
+  group_by(listing_id) %>%
+  group_split() %>%
+  map(.f = function(df) {
+    df %>%
+      arrange(date) %>%
+      tk_augment_fourier(date, .periods = c(7, 30, 90, 365)) %>%
+      tk_augment_lags(rate, .lags = horizon) %>%
+      tk_augment_slidify(
+        str_glue("rate_lag{horizon}"),
+        .f       = ~mean(.x, na.rm = TRUE),
+        .period  = c(7, 30, 90),
+        .partial = TRUE,
+        .align   = "center"
+      )
+  }) %>%
+  bind_rows() %>%
+
+  # add xregs
+  left_join(holidays_prepared, by = c("date" = "ds")) %>%
+  left_join(art_listings_cleaned, by = "listing_id") %>%
+  left_join(inflation_join, by = "date") %>%
+  
+  # add anomalies
+  group_by(listing_id) %>%
+  ungroup() %>%
+  
+  # drop na's from lag
+  drop_na(str_glue("rate_lag{horizon}"))
+
+
+
+
+# visualize
+# full_data_tbl %>%
+#   group_by(listing_id) %>%
+#   plot_time_series(
+#     date, rate,
+#     .facet_ncol = 3,
+#     .facet_nrow = 2,
+#     .smooth = F,
+#     .trelliscope = T)
+
+```
+
+
+
+
+# --
+# 2.0 NESTED TIME SERIES
+```{r}
+nested_data_tbl <- full_data_tbl %>%
+  
+  nest_timeseries(
+    .id_var = listing_id,
+    .length_future = horizon
+  ) %>%
+  
+  split_nested_timeseries(
+    .length_test = horizon
+  )
+```
+
+
+
+
+# --
+# 3.0 RECIPES
+```{r}
+
+# sequential model recipe - date included
+recipe_spec <- recipe(rate ~ ., extract_nested_train_split(nested_data_tbl)) %>%
+  step_timeseries_signature(date) %>%
+  step_rm(listing_name, features) %>%
+  step_string2factor(room_type) %>%
+  step_zv(all_predictors()) %>%
+  step_rm(matches("(.xts$)|(.iso$)|(hour)|(minute)|(second)|(am.pm)")) %>%
+  step_normalize(matches("(index.num)|(year)|(yday)")) %>%
+  step_dummy(all_nominal_predictors(), one_hot = TRUE)
+
+recipe_spec %>%
+  prep() %>%
+  juice() %>%
+  glimpse()
+
+
+# machine learning recipe - no date
+recipe_spec_ml <- recipe(rate ~ ., extract_nested_train_split(nested_data_tbl)) %>%
+  step_timeseries_signature(date) %>%
+  step_rm(listing_name, features) %>%
+  step_rm(date) %>%
+  step_string2factor(room_type) %>% 
+  step_zv(all_predictors()) %>%
+  step_rm(matches("(.xts$)|(.iso$)|(hour)|(minute)|(second)|(am.pm)")) %>%
+  step_normalize(matches("(index.num)|(year)|(yday)")) %>%
+  step_dummy(all_nominal_predictors(), one_hot = TRUE)
+  
+recipe_spec_ml %>%
+  prep() %>%
+  juice() %>%
+  glimpse()
+
+
+bake(prep(recipe_spec), extract_nested_train_split(nested_data_tbl))
+bake(prep(recipe_spec_ml), extract_nested_train_split(nested_data_tbl))
+```
+
+
+
+
+# --
+# 4.0 ML MODELS
+## Parallel Processing
+```{r}
+parallel_stop()
+
+detectCores()
+doParallel::registerDoParallel(cores = 15)
+```
+
+
+## ML Models
+```{r}
+# XGBoost Models
+set.seed(5678)
+wflw_xgb_1 <- workflow() %>%
+  add_model(boost_tree(
+    mode = "regression",
+    mtry = 43,
+    trees = 1000,
+    min_n = 28,
+    tree_depth = 2,
+    learn_rate = 0.3,
+    loss_reduction = 0
+  ) %>%
+    set_engine("xgboost")) %>%
+  add_recipe(recipe_spec_ml)
+
+
+
+# ARIMA Boost
+set.seed(5678)
+wflw_arima_boost <- workflow() %>%
+  add_model(arima_boost(
+    seasonal_period = 7,
+    
+    # xgboost
+    mtry = 43,
+    trees = 1000,
+    min_n = 28,
+    tree_depth = 2,
+    learn_rate = 0.3,
+    loss_reduction = 0
+    )  %>%
+  set_engine("arima_xgboost")) %>%
+  add_recipe(recipe_spec)
+```
+
+
+
+
+
+# --
+# 4.1 MODELS W/TUNE
+## Parallel Processing
+```{r}
+doParallel::stopImplicitCluster()
+doParallel::registerDoParallel(cores = 15)
+```
+
+
+
+## Resamples - K-Fold
+```{r}
+set.seed(5678)
+resamples_kfold <- extract_nested_train_split(nested_data_tbl) %>% vfold_cv(v = 5)
+
+resamples_kfold %>%
+  tk_time_series_cv_plan() %>%
+  plot_time_series_cv_plan(
+    .date_var = date, 
+    .value = rate, 
+    .facet_ncol = 2
+  )
+```
+
+
+## XGBoost
+```{r}
+model_spec_xgboost_tune <- boost_tree(
+  mode           = "regression",
+  trees          = 1000,
+  mtry           = tune(),
+  min_n          = tune(),
+  tree_depth     = tune(),
+  learn_rate     = tune(),
+  loss_reduction = tune()
+) %>%
+  set_engine("xgboost")
+  
+wflw_spec_xgboost_tune <- workflow() %>%
+  add_model(model_spec_xgboost_tune) %>%
+  add_recipe(recipe_spec_ml)
+
+
+# ** Tuning
+set.seed(5678)
+tune_results_xgboost <- wflw_spec_xgboost_tune %>%
+  tune_grid(
+    resamples = resamples_kfold,
+    param_info = extract_parameter_set_dials(wflw_spec_xgboost_tune) %>%
+      update(
+        learn_rate = learn_rate(range = c(0.001, 0.400), trans = NULL)
+      ),
+    grid = 10,
+    control = control_grid(verbose = TRUE, allow_par = TRUE)
+  )
+
+
+# ** Results
+tune_results_xgboost %>% show_best("rmse", n = Inf)
+
+
+# ** Finalize
+wflw_xgboost_tuned <- wflw_spec_xgboost_tune %>%
+  finalize_workflow(select_best(tune_results_xgboost, "rmse"))
+```
+
+
+
+
+
+# --
+# 5.0 TESTING
+## Start with 1 time series
+```{r, eval=FALSE}
+doParallel::stopImplicitCluster()
+doParallel::registerDoParallel(cores = 15)
+
+sample_tbl <- nested_data_tbl %>%
+  slice(1:5) %>%
+  modeltime_nested_fit(
+    
+    model_list = list(
+      wflw_xgb_1,
+      wflw_arima_boost,
+      wflw_xgboost_tuned
+    ),
+    
+    control = control_nested_fit(
+      verbose = TRUE,
+      allow_par = TRUE
+    )
+  )
+
+# check for errors
+sample_tbl %>% extract_nested_error_report()
+```
+
+
+
+## Scale to all time series
+```{r}
+doParallel::stopImplicitCluster()
+doParallel::registerDoParallel(cores = 15)
+
+
+nested_modeltime_tbl <- nested_data_tbl %>%
+  modeltime_nested_fit(
+    
+    model_list = list(
+      wflw_xgb_1,
+      wflw_arima_boost,
+      wflw_xgboost_tuned
+    ),
+    
+    control = control_nested_fit(
+      verbose = TRUE,
+      allow_par = TRUE
+    )
+  )
+
+# check for errors
+nested_modeltime_tbl %>% extract_nested_error_report()
+```
+
+
+## Check Accuracy & Errors
+```{r}
+# check for errors
+error_report <- nested_modeltime_tbl %>% extract_nested_error_report()
+ids_small_timeseries <- as.vector(unique(error_report$listing_id))
+
+
+# review non-errors nest
+nested_modeltime_tbl %>%
+  filter(!listing_id %in% ids_small_timeseries) %>%
+  extract_nested_train_split()
+
+
+# check accuracy on testing data
+nested_modeltime_tbl %>%
+  extract_nested_test_accuracy() %>%
+  table_modeltime_accuracy()
+
+
+# visualize
+# nested_modeltime_tbl %>%
+#   extract_nested_test_forecast() %>%
+#   group_by(listing_id) %>%
+#   plot_modeltime_forecast(
+#     .facet_ncol = 3,
+#     .trelliscope = TRUE,
+#     .conf_interval_show = FALSE
+#   )
+
+
+# separate from errors for clean nest
+nested_modeltime_subset_tbl <- nested_modeltime_tbl %>%
+  filter(!listing_id %in% ids_small_timeseries)
+```
+
+
+
+# --
+# 6.0 SELECT BEST
+```{r}
+#### BEST SELECTED ####
+nested_best_tbl <- nested_modeltime_subset_tbl %>% 
+  modeltime_nested_select_best(
+    metric = "rmse",
+    minimize = TRUE,
+    filter_test_forecasts = TRUE)
+
+
+# best report
+nested_best_tbl %>% extract_nested_best_model_report()
+
+
+# visualize
+# nested_best_tbl %>%
+#   extract_nested_test_forecast() %>%
+#   group_by(listing_id) %>%
+#   plot_modeltime_forecast(
+#     .facet_ncol = 3,
+#     .conf_interval_show = FALSE,
+#     .trelliscope = T)
+```
+
+
+
+
+# --
+# 7.0 REFIT & FORECAST
+```{r}
+doParallel::stopImplicitCluster()
+doParallel::registerDoParallel(cores = 15)
+
+
+
+### ONLY THE BEST MODELS ###
+nested_best_refit_tbl <- nested_best_tbl %>%
+  modeltime_nested_refit(
+    control = control_nested_refit(
+      verbose = TRUE,
+      allow_par = TRUE
+    )
+  )
+
+
+
+# check for errors (should be zero)
+nested_best_refit_tbl %>% extract_nested_error_report()
+```
+
+
+## Unnest & Prepare for Export
+```{r}
+pct_increase <- 10
+
+
+# prepare for export
+unnested_best_refit_tbl <- nested_best_refit_tbl %>%
+  extract_nested_future_forecast() %>%
+  mutate(across(
+    .cols = c(.value:.conf_hi),
+    .fns  = expm1
+  )) %>%
+  rename(date  = .index, 
+         value = .value,
+         type  = .key) %>%
+  select(listing_id, date, value, type)
+
+
+
+
+
+# increasing the yoy forecast for each week
+forecast_increase <- unnested_best_refit_tbl %>%
+  
+  # add year & week, and summarize
+  tk_augment_timeseries_signature(date) %>%
+  group_by(listing_id, year, week) %>%
+  summarize(y_week = mean(value, na.rm = T)) %>%
+  ungroup() %>%
+  
+  # increase all xgboost forecasts by week (if not already done so)
+  group_by(listing_id, week) %>%
+  mutate(pct_chg    = (y_week / lag(y_week, 1)) - 1,
+         yoy_flat   = ifelse(pct_chg >= (pct_increase/100), y_week, (y_week/(1-abs(pct_chg))) * (1 + as.numeric(pct_increase/100))),
+         multiplier = (yoy_flat / y_week)) %>%
+  ungroup()
+
+
+
+# left_join to show prediction columns
+pct_increase_identifier <- unnested_best_refit_tbl %>%
+  tk_augment_timeseries_signature(date) %>%
+  group_by(listing_id, year, week, type) %>%
+  distinct(listing_id, year, week, type) %>%
+  ungroup() %>%
+  arrange(listing_id, year, week) %>%
+  filter(type == 'prediction') %>%
+  left_join(forecast_increase, by = c('listing_id', 'year', 'week')) %>%
+  select(listing_id, year, week, multiplier)
+
+
+
+
+# join all & include increase
+unnested_prepared_best_refit_tbl <- unnested_best_refit_tbl %>%
+  tk_augment_timeseries_signature(date) %>%
+  select(listing_id, date, value, type, year, week) %>%
+  left_join(pct_increase_identifier, by = c('listing_id', 'year', 'week')) %>%
+  arrange(listing_id, year, week) %>%
+  mutate(value = ifelse(is.na(multiplier), value, value * multiplier)) %>%
+  select(listing_id, date, value, type)
+  
+  
+
+
+# visualize future
+# unnested_prepared_best_refit_tbl %>%
+#   group_by(listing_id) %>%
+#   plot_time_series(
+#     date, value,
+#     .color_var   = type,
+#     .smooth      = F,
+#     .facet_ncol  = 3,
+#     .facet_nrow  = 2,
+#     .trelliscope = T)
+
+
+doParallel::stopImplicitCluster()
+```
+
+
+
+
+# --
+# 7.1 SAVE & EXPORT
+```{r}
+# live file
+unnested_prepared_best_refit_tbl %>% write_rds("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\ds_historical_listing_rates_forecast.rds")
+
+
+# timestamp archive
+unnested_prepared_best_refit_tbl %>% write_rds(str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\00_data\\{date}_ds_historical_listing_rates_forecast.rds"))
+```
+
+
+
+
+
+
+# --
+# 8.0 EMAIL NOTIFICATION
+```{r}
+
+date_time <- add_readable_time()
+
+body_text <- 
+  md(str_glue(
+    
+"
+Good news!
+
+The **rentedrmsprod Nested Forecast** script ran successfully on {date_time}.
+
+"))
+
+
+footer_text <- md("sent via the [blastula](https://rstudio.github.io/blastula) R package")
+
+
+
+email <- compose_email(
+  body = body_text,
+  footer = footer_text
+)
+
+
+# send the email
+email %>%
+  smtp_send(
+    from = "dstephens@tnsinc.com",
+    to = "dstephens@tnsinc.com", 
+    subject = str_glue("Synced Only Forecast"),
+    credentials = creds_file(file = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\gmail_creds")
+  )
+```
+
+
+
+
+
+
+
