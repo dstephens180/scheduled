@@ -1,0 +1,99 @@
+---
+title: "rentedrmsprod Art Bookings"
+---
+
+
+# LIBRARIES
+```{r setup, include=FALSE}
+
+# sql connect
+library(odbc)
+library(DBI)
+library(arrow)
+
+# core packages
+library(tidyverse)
+library(dbplyr)
+library(timetk)
+library(tidyquant)
+library(janitor)
+library(lubridate)
+library(stringi)
+library(jsonlite)
+library(tidyjson)
+library(data.table)
+
+
+
+date <- today()
+options(scipen = 9999)
+
+
+PROD_HOST    <- Sys.getenv("PROD_HOST")
+PROD_DB_NAME <- Sys.getenv("PROD_DB_NAME")
+PROD_ID      <- Sys.getenv("PROD_ID")
+PROD_PW      <- Sys.getenv("PROD_PW")
+
+prod_conn <- dbConnect(RMariaDB::MariaDB(),
+                        host     = PROD_HOST,
+                        dbname   = PROD_DB_NAME,
+                        username = PROD_ID,
+                        password = PROD_PW)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+# 1.0 SQL EXTRACTS
+## pull art_groups
+```{sql connection=prod_conn, output.var="art_listings_bookings"}
+select listings_id, type, created_date, text, rate_type, rate, booking_date
+from art_listings_bookings
+```
+
+
+
+
+```{r}
+art_listings_bookings
+```
+
+
+
+# 2.0 SAVE & DISCONNECT
+## Save as parquet
+```{r}
+# live file in scheduled/00_data folder
+write_parquet(art_listings_bookings, "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\art_listings_bookings.parquet")
+
+# live file for shiny in art_replica/shiny folder
+write_parquet(art_listings_bookings, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\art_listings_bookings.parquet")
+
+
+
+
+# time-stamped archive file
+write_parquet(art_listings_bookings, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\archive\\{date}_art_listings_bookings.parquet"))
+```
+
+
+## Disconnect SQL
+```{r}
+dbDisconnect(prod_conn)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+

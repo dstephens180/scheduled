@@ -1,0 +1,210 @@
+---
+title: "rentedrmsprod Art Groups"
+---
+
+
+# LIBRARIES
+```{r setup, include=FALSE}
+
+# sql connect
+library(odbc)
+library(DBI)
+library(arrow)
+
+# core packages
+library(tidyverse)
+library(dbplyr)
+library(timetk)
+library(tidyquant)
+library(janitor)
+library(lubridate)
+library(stringi)
+library(jsonlite)
+library(tidyjson)
+library(data.table)
+
+library(blastula)
+
+
+
+date <- today()
+options(scipen = 9999)
+
+
+PROD_HOST    <- Sys.getenv("PROD_HOST")
+PROD_DB_NAME <- Sys.getenv("PROD_DB_NAME")
+PROD_ID      <- Sys.getenv("PROD_ID")
+PROD_PW      <- Sys.getenv("PROD_PW")
+
+prod_conn <- dbConnect(RMariaDB::MariaDB(),
+                        host     = PROD_HOST,
+                        dbname   = PROD_DB_NAME,
+                        username = PROD_ID,
+                        password = PROD_PW)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+# 1.0 SQL EXTRACTS
+## pull art_groups
+```{sql connection=prod_conn, output.var="prod_art_groups"}
+select id, accounts_id, cast(details as CHAR), cast(overrides as CHAR), cast(rates as CHAR), cast(listings as CHAR), cast(enrollment_settings as CHAR)
+from art_groups
+
+```
+
+
+
+## details_extract
+```{r}
+
+groups_details_unnested <- prod_art_groups %>%
+  rename(
+    details = `cast(details as CHAR)`,
+    overrides = `cast(overrides as CHAR)`,
+    rates = `cast(rates as CHAR)`,
+    listings = `cast(listings as CHAR)`,
+    enrollment_settings = `cast(enrollment_settings as CHAR)`
+    ) %>% 
+  
+  # extract json details
+  rowwise() %>%
+  mutate(details_extract = list(fromJSON(details))) %>%
+  ungroup() %>%
+  
+  # unnest wider
+  select(id, accounts_id, details_extract) %>%
+  unnest_wider(details_extract, simplify = T) %>%
+  
+  # replace NA text with NA's
+  mutate(across(where(is.character), na_if, "NA"))
+
+```
+
+
+
+## listings_extract
+```{r}
+groups_nested_tbl <- prod_art_groups %>%
+  rename(
+    details = `cast(details as CHAR)`,
+    overrides = `cast(overrides as CHAR)`,
+    rates = `cast(rates as CHAR)`,
+    listings = `cast(listings as CHAR)`,
+    enrollment_settings = `cast(enrollment_settings as CHAR)`
+    ) %>%
+  select(id, accounts_id, listings) %>%
+  drop_na()
+
+
+
+listings_extract_tbl <- 
+  
+  # split out each listing to its own column
+  str_split_fixed(groups_nested_tbl$listings, ", ", n = 100) %>% 
+  as_tibble() %>%
+  
+  # bind with original nested_tbl
+  bind_cols(groups_nested_tbl) %>%
+  select(-listings) %>%
+  relocate(id, accounts_id) %>%
+  
+  # remove "[]"
+  mutate_all(funs(str_replace(., "\\[", ""))) %>%
+  mutate_all(funs(str_replace(., "\\]", ""))) %>%
+  
+  # pivot longer
+  pivot_longer(cols = starts_with("V"), values_drop_na = T) %>%
+  filter(value != "") %>%
+  select(-name) %>%
+  rename(listing_id = value) %>%
+  mutate(id = as.integer(id),
+         accounts_id = as.integer(accounts_id))
+```
+
+
+## Join all together
+```{r}
+
+art_groups_unnested <- listings_extract_tbl %>%
+  left_join(groups_details_unnested, by = c("id", "accounts_id"))
+
+```
+
+
+
+
+
+
+# 2.0 SAVE & DISCONNECT
+## Save as parquet
+```{r}
+# live file in scheduled/00_data folder
+write_rds(art_groups_unnested, "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\art_groups_cleaned.rds")
+
+# live file for shiny in art_replica/shiny folder
+write_rds(art_groups_unnested, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\art_groups_cleaned.rds")
+
+
+
+
+# time-stamped archive file
+write_rds(art_groups_unnested, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\archive\\{date}_art_groups_cleaned.rds"))
+```
+
+
+## Disconnect SQL
+```{r}
+dbDisconnect(prod_conn)
+```
+
+
+
+
+
+
+# 3.0 EMAIL NOTIFICATION
+```{r}
+
+date_time <- add_readable_time()
+
+body_text <- 
+  md(str_glue(
+    
+"
+Good news!
+
+The **rentedrmsprod: Art Groups** script ran successfully on {date_time}.
+
+"))
+
+
+footer_text <- md("sent via the [blastula](https://rstudio.github.io/blastula) R package")
+
+
+
+email <- compose_email(
+  body = body_text,
+  footer = footer_text
+)
+
+
+# send the email
+email %>%
+  smtp_send(
+    from = "dstephens@tnsinc.com",
+    to = "dstephens@tnsinc.com", 
+    subject = str_glue("Art Groups"),
+    credentials = creds_file(file = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\gmail_creds")
+  )
+```
+
+
+
+
+
+
+
