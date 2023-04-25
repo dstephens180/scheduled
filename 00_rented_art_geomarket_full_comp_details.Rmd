@@ -23,16 +23,13 @@ library(jsonlite)
 library(tidyjson)
 library(data.table)
 
+library(blastula)
+
 
 
 date <- today()
 options(scipen = 9999)
 options(dplyr.summarise.inform = FALSE)
-
-
-source("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\R\\ds1_new_model_functions.R")
-source("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\R\\ds1_calendar_functions.R")
-
 
 
 DS_HOST    <- Sys.getenv("DS_HOST")
@@ -52,6 +49,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 # 0.0 DATA
+## Synced Art Listings
 ```{r}
 art_listing_ids_cleaned <- read_parquet("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\art_listing_ids_cleaned.parquet")
 ```
@@ -118,10 +116,9 @@ full_comps_extract_longer <- full_extract_longer %>%
 
 
 
-# 2.0 FOR LOOP
-## Full listings first
+# 2.0 DATA EXTRACT
+## Unique listing_id
 ```{r}
-
 # get unique listing_ids
 unique_listing_ids <- full_extract_longer %>%
   bind_rows(comps_extract_longer) %>%
@@ -129,61 +126,53 @@ unique_listing_ids <- full_extract_longer %>%
   rowid_to_column(var = "identifier")
 
 
-art_listing_vector <- as.vector(unique_listing_ids %>% pull(identifier))
+unique_listing_ids_vector <- as.vector(unique_listing_ids %>% pull(listing_id))
+sample_unique_ids_vector <- unique_listing_ids_vector[1:20]
+```
 
 
-### FOR LOOP ###
-# create empty vector
-all_container_data = c()
 
-
+## Filter/Join SQL Tables & Extract Data
+__25 minutes to run this chunk__
+```{r}
 calendar <- dplyr::tbl(conn, "combined_calendar")
 active_listings <- dplyr::tbl(conn, "combined_active")
 location_listings <- dplyr::tbl(conn, "combined_listings")
 
 
+tictoc::tic()
 
-for (i in art_listing_vector) {
-  
-  selected_column <- i
-  
-  art_id_listing_ids <- 
-    as.vector(
-      unique_listing_ids %>%
-        dplyr::filter(identifier == selected_column) %>%
-        dplyr::pull(listing_id))
-  
-    
-  initial_filter <- calendar %>%
-    dplyr::inner_join(active_listings, by = "listing_id") %>%
-    dplyr::inner_join(location_listings, by = "listing_id") %>%
-    dplyr::filter(listing_id %in% local(art_id_listing_ids)) %>%
-    dplyr::select(listing_id, date, rate, bedrooms, bathrooms, sleeps, rating, reviews, room_type, latitude, longitude, available) %>%
-    dplyr::mutate(days_out_7  = ifelse(date >= as.Date(today()-1) & date <= as.Date(today()-1+7), available, NA),
-                  days_out_14 = ifelse(date >= as.Date(today()-1) & date <= as.Date(today()-1+15), available, NA)) %>%
-    dplyr::group_by(listing_id, bedrooms, bathrooms, sleeps, rating, reviews, room_type, latitude, longitude) %>%
-    dplyr::summarise(mean_rate = mean(round(rate, 0), na.rm = T), 
-                     std_dev = sd(round(rate, 0), na.rm = T),
-                     avail_7_days_out = mean(days_out_7, na.rm = T),
-                     avail_14_days_out = mean(days_out_14, na.rm = T)) %>%
-    dplyr::ungroup() %>%
-    dplyr::collect() %>%
-    dplyr::distinct()
+geomarket_grouped_extract <- calendar %>%
+  dplyr::inner_join(active_listings, by = "listing_id") %>%
+  dplyr::inner_join(location_listings, by = "listing_id") %>%
+  dplyr::filter(listing_id %in% local(unique_listing_ids_vector)) %>%
+  dplyr::group_by(listing_id) %>%
+  dplyr::select(listing_id, date, rate, bedrooms, bathrooms, sleeps, rating, reviews, room_type, latitude, longitude, available) %>%
+  dplyr::mutate(days_out_7  = ifelse(date >= as.Date(today()-1) & date <= as.Date(today()-1+7), available, NA),
+                days_out_14 = ifelse(date >= as.Date(today()-1) & date <= as.Date(today()-1+15), available, NA)) %>%
+  dplyr::group_by(listing_id, bedrooms, bathrooms, sleeps, rating, reviews, room_type, latitude, longitude) %>%
+  dplyr::summarise(mean_rate = round(mean(rate, na.rm = T), 0), 
+                   std_dev = round(sd(rate, na.rm = T), 0),
+                   avail_7_days_out = mean(days_out_7, na.rm = T),
+                   avail_14_days_out = mean(days_out_14, na.rm = T)) %>%
+  dplyr::ungroup() %>%
+  dplyr::collect() %>%
+  dplyr::distinct()
 
-  
-  # bind rows of all_container_data
-  all_container_data <- bind_rows(all_container_data, initial_filter)
-  
-}
-
-
-
-# join with id's
-geomarket_full_comps_details_tbl <- full_comps_extract_longer %>%
-  left_join(all_container_data, by = "listing_id") %>%
-  relocate(listing_id) %>%
-  drop_na()
+tictoc::toc()
 ```
+
+
+## Join with Original Table
+```{r}
+
+geomarket_full_comps_details_tbl <- full_comps_extract_longer %>%
+  left_join(geomarket_grouped_extract, by = "listing_id") %>%
+  relocate(listing_id) %>%
+  drop_na(bedrooms)
+
+```
+
 
 
 
@@ -213,6 +202,51 @@ write_parquet(geomarket_full_comps_details_tbl, str_glue("C:\\Users\\DavidStephe
 ```{r}
 dbDisconnect(conn)
 ```
+
+
+
+
+
+
+
+
+
+# 4.0 EMAIL NOTIFICATION
+```{r}
+
+date_time <- add_readable_time()
+
+body_text <- 
+  md(str_glue(
+    
+"
+Good news!
+
+The **rented_art: Geomarket Full & Comps Details Data Extract** script ran successfully on {date_time}.
+
+"))
+
+
+footer_text <- md("sent via the [blastula](https://rstudio.github.io/blastula) R package")
+
+
+
+email <- compose_email(
+  body = body_text,
+  footer = footer_text
+)
+
+
+# send the email
+email %>%
+  smtp_send(
+    from = "dstephens@tnsinc.com",
+    to = "dstephens@tnsinc.com", 
+    subject = str_glue("Geomarket Full & Comps Details"),
+    credentials = creds_file(file = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\gmail_creds")
+  )
+```
+
 
 
 

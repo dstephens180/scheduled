@@ -1,5 +1,5 @@
 ---
-title: "rentedrmsprod"
+title: "rentedrmsprod: Individual Account Analysis"
 ---
 
 
@@ -51,7 +51,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{sql connection=prod_conn, output.var="prod_art_listings"}
 select cast(id as CHAR), cast(accounts_id as CHAR), cast(listing_name as CHAR), cast(geomarket as CHAR), cast(rates as CHAR)
 from art_listings
-where sync = 1
+where accounts_id = 826
 
 ```
 
@@ -67,7 +67,7 @@ from art_accounts
 ```{sql connection=prod_conn, output.var="prod_art_listings_details"}
 select cast(id as CHAR), cast(details as CHAR)
 from art_listings
-where sync = 1
+where accounts_id = 826
 
 ```
 
@@ -104,7 +104,7 @@ prod_art_listings_unnested <- prod_art_listings_details %>%
   mutate(id = as.integer(id),
          full_baths = as.numeric(full_baths) + as.numeric(half_baths)) %>%
   select(-half_baths, -baths) %>%
-  mutate_at(c("beds", "guests", "rating", "reviews", "gap_stay", "latitude", "longitude", "min_stay", "bed_count", "min_stay_weekends", "min_stay_close", "min_stay_close_days"), as.numeric)
+  mutate_at(c("beds", "guests", "reviews", "latitude", "longitude", "bed_count"), as.numeric)
 
 
 prod_art_listings_unnested %>% glimpse()
@@ -227,17 +227,18 @@ prod_art_listings_cleaned <- prod_art_listings %>%
 
 # both deactivation_reason/date should be NA/NULL values to be truly activated
 prod_art_accounts_cleaned <- prod_art_accounts %>%
-  filter(is.na(deactivation_date) & is.na(deactivation_reason)) %>%
-  mutate(account_id = as.character(id),
-         active     = "active") %>%
+  mutate(active = case_when(
+    is.na(deactivation_date) & is.na(deactivation_reason) ~ "active",
+    T ~ "inactive"
+  )) %>%
+  mutate(account_id = as.character(id)) %>%
   select(account_id, account_name, active)
 
 
 
 prod_listings_joined <- prod_art_listings_cleaned %>%
   left_join(prod_art_accounts_cleaned, by = "account_id") %>%
-  left_join(key_metrics_cleaned, by = "id") %>%
-  filter(active == "active")
+  left_join(key_metrics_cleaned, by = "id")
 
 
 
@@ -251,10 +252,6 @@ prod_listings_joined %>% glimpse()
 # 2.0 DATA PREP
 ## Geomarket Cleaning
 ```{r}
-# small sample for testing
-sample_tbl <- prod_listings_joined %>% head(10) %>% rowid_to_column()
-
-
 
 # unnest & apply (over columns) and sapply (iterate over lists)
 geomarket_cleaned_tbl <- prod_listings_joined %>%
@@ -276,34 +273,16 @@ geomarket_cleaned_tbl <- prod_listings_joined %>%
   filter(full != "",
          comps != "")
 
-
-
-# stringr - no longer needed, as faster with apply/sapply
-# geomarket_cleaned_tbl <- sample_tbl$geomarket %>%
-#   str_replace_all("[^[:alnum:]\\_\\,\\s]", "") %>%
-#   str_replace_all('full ', "") %>%
-#   str_split(pattern = 'comps ', simplify = T) %>%
-#   as_tibble() %>%
-#   rename(full = V1,
-#          comps = V2) %>%
-#   bind_cols(sample_tbl) %>% 
-#   select(id, account_id, account_name, listing_name, full, comps, avg_rate) %>%
-#   mutate(id = as.integer(id)) %>%
-#   filter(full != "null",
-#          comps != "null")
-
-write_rds(geomarket_cleaned_tbl, "00_data/geomarket_cleaned_tbl.rds")
-geomarket_cleaned_tbl <- read_rds("00_data/geomarket_cleaned_tbl.rds")
 ```
 
 
 
 ## Join with details data
 ```{r}
-data_full_cleaned_tbl <- geomarket_cleaned_tbl %>%
+data_single_account_cleaned_tbl <- geomarket_cleaned_tbl %>%
   left_join(prod_art_listings_unnested, by = "id")
 
-data_full_cleaned_tbl %>% glimpse()
+data_single_account_cleaned_tbl %>% glimpse()
 ```
 
 
@@ -318,16 +297,16 @@ data_full_cleaned_tbl %>% glimpse()
 ## Save as parquet
 ```{r}
 # live file in scheduled/00_data folder
-write_parquet(data_full_cleaned_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\art_listing_ids_cleaned.parquet")
+write_parquet(data_single_account_cleaned_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\art_only_account_cleaned.parquet")
 
 # live file for shiny in art_replica/shiny folder
-write_parquet(data_full_cleaned_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\art_listing_ids_cleaned.parquet")
+write_parquet(data_single_account_cleaned_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\art_only_account_cleaned.parquet")
 
 
 
 
 # time-stamped archive file
-write_parquet(data_full_cleaned_tbl, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\archive\\{date}_art_listing_ids_cleaned.parquet"))
+write_parquet(data_single_account_cleaned_tbl, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\archive\\{date}_art_only_account_cleaned.parquet"))
 ```
 
 
@@ -335,47 +314,6 @@ write_parquet(data_full_cleaned_tbl, str_glue("C:\\Users\\DavidStephens\\Desktop
 ```{r}
 dbDisconnect(prod_conn)
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
