@@ -444,9 +444,7 @@ bake(prep(recipe_spec_ml), extract_nested_train_split(nested_data_tbl))
 # 4.0 ML MODELS
 ## Parallel Processing
 ```{r}
-parallel_stop()
-
-detectCores()
+doParallel::stopImplicitCluster()
 doParallel::registerDoParallel(cores = 15)
 ```
 
@@ -494,14 +492,6 @@ wflw_arima_boost <- workflow() %>%
 
 # --
 # 4.1 MODELS W/TUNE
-## Parallel Processing
-```{r}
-doParallel::stopImplicitCluster()
-doParallel::registerDoParallel(cores = 15)
-```
-
-
-
 ## Resamples - K-Fold
 ```{r}
 set.seed(5678)
@@ -793,54 +783,14 @@ doParallel::stopImplicitCluster()
 # 7.1 SAVE & EXPORT
 ```{r}
 # live file
-unnested_prepared_best_refit_tbl %>% write_rds("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\ds_historical_listing_rates_forecast.rds")
+unnested_prepared_best_refit_tbl %>% write_rds("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\ds_historical_listing_rates_forecast_year_1.rds")
 
 
 # timestamp archive
-unnested_prepared_best_refit_tbl %>% write_rds(str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\00_data\\{date}_ds_historical_listing_rates_forecast.rds"))
+unnested_prepared_best_refit_tbl %>% write_rds(str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\00_data\\{date}_ds_historical_listing_rates_forecast_year_1.rds"))
 ```
 
 
-
-
-
-
-# --
-# 8.0 EMAIL NOTIFICATION
-```{r}
-
-date_time <- add_readable_time()
-
-body_text <- 
-  md(str_glue(
-    
-"
-Good news!
-
-The **rentedrmsprod Nested Forecast** script ran successfully on {date_time}.
-
-"))
-
-
-footer_text <- md("sent via the [blastula](https://rstudio.github.io/blastula) R package")
-
-
-
-email <- compose_email(
-  body = body_text,
-  footer = footer_text
-)
-
-
-# send the email
-email %>%
-  smtp_send(
-    from = "dstephens@tnsinc.com",
-    to = "dstephens@tnsinc.com", 
-    subject = str_glue("Synced Only Forecast"),
-    credentials = creds_file(file = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\gmail_creds")
-  )
-```
 
 
 
