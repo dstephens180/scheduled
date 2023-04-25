@@ -55,6 +55,9 @@ library(bundle)
 library(blastula)
 
 
+source("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\R\\ds1_new_model_functions.R")
+source("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\R\\ds1_calendar_functions.R")
+
 
 date <- today()
 options(scipen = 9999)
@@ -66,9 +69,6 @@ end_date <- as.Date(today() + 120)
 end_date_forecast <- as.Date(today() + 365)
 horizon <- interval(end_date, end_date_forecast) %/% days(1)
 
-
-source("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\R\\ds1_new_model_functions.R")
-source("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\R\\ds1_calendar_functions.R")
 
 
 DS_HOST    <- Sys.getenv("DS_HOST")
