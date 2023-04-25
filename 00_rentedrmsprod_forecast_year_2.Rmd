@@ -73,7 +73,7 @@ knitr::opts_chunk$set(echo = TRUE)
 # 0.0 SQL DATA
 ## Raw Active Listings Data
 ```{r}
-unnested_prepared_best_refit_tbl <- read_rds("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\ds_historical_listing_rates_forecast.rds")
+unnested_prepared_best_refit_tbl <- read_rds("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\ds_historical_listing_rates_forecast_year_1.rds")
 
 unnested_prepared_best_refit_tbl %>% glimpse()
 ```
@@ -105,6 +105,8 @@ horizon <- 365
 full_data_tbl <- unnested_prepared_best_refit_tbl %>%
   
   # global changes
+  select(-type) %>%
+  rename(rate = value) %>%
   mutate(rate = log1p(rate)) %>%
   arrange(listing_id, date) %>%
   
@@ -136,12 +138,7 @@ full_data_tbl <- unnested_prepared_best_refit_tbl %>%
 
   # add xregs
   left_join(holidays_prepared, by = c("date" = "ds")) %>%
-  left_join(art_listings_cleaned, by = "listing_id") %>%
   left_join(inflation_join, by = "date") %>%
-  
-  # add anomalies
-  group_by(listing_id) %>%
-  ungroup() %>%
   
   # drop na's from lag
   drop_na(str_glue("rate_lag{horizon}"))
@@ -189,8 +186,6 @@ nested_data_tbl <- full_data_tbl %>%
 # sequential model recipe - date included
 recipe_spec <- recipe(rate ~ ., extract_nested_train_split(nested_data_tbl)) %>%
   step_timeseries_signature(date) %>%
-  step_rm(listing_name, features) %>%
-  step_string2factor(room_type) %>%
   step_zv(all_predictors()) %>%
   step_rm(matches("(.xts$)|(.iso$)|(hour)|(minute)|(second)|(am.pm)")) %>%
   step_normalize(matches("(index.num)|(year)|(yday)")) %>%
@@ -205,9 +200,7 @@ recipe_spec %>%
 # machine learning recipe - no date
 recipe_spec_ml <- recipe(rate ~ ., extract_nested_train_split(nested_data_tbl)) %>%
   step_timeseries_signature(date) %>%
-  step_rm(listing_name, features) %>%
   step_rm(date) %>%
-  step_string2factor(room_type) %>% 
   step_zv(all_predictors()) %>%
   step_rm(matches("(.xts$)|(.iso$)|(hour)|(minute)|(second)|(am.pm)")) %>%
   step_normalize(matches("(index.num)|(year)|(yday)")) %>%
@@ -230,9 +223,7 @@ bake(prep(recipe_spec_ml), extract_nested_train_split(nested_data_tbl))
 # 4.0 ML MODELS
 ## Parallel Processing
 ```{r}
-parallel_stop()
-
-detectCores()
+doParallel::stopImplicitCluster()
 doParallel::registerDoParallel(cores = 15)
 ```
 
@@ -280,14 +271,6 @@ wflw_arima_boost <- workflow() %>%
 
 # --
 # 4.1 MODELS W/TUNE
-## Parallel Processing
-```{r}
-doParallel::stopImplicitCluster()
-doParallel::registerDoParallel(cores = 15)
-```
-
-
-
 ## Resamples - K-Fold
 ```{r}
 set.seed(5678)
@@ -589,8 +572,6 @@ unnested_prepared_best_refit_tbl %>% write_rds(str_glue("C:\\Users\\DavidStephen
 
 
 
-
-
 # --
 # 8.0 EMAIL NOTIFICATION
 ```{r}
@@ -603,7 +584,7 @@ body_text <-
 "
 Good news!
 
-The **rentedrmsprod Nested Forecast** script ran successfully on {date_time}.
+Both years of the  **rentedrmsprod Nested Forecast** script ran successfully on {date_time}.
 
 "))
 
