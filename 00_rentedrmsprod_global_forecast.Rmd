@@ -1,0 +1,756 @@
+---
+title: "rentedrmsprod Global Forecast"
+---
+
+# LIBRARIES
+```{r setup, include=FALSE}
+
+# api connect
+library(httr)
+
+# sql connect
+library(odbc)
+library(DBI)
+
+# core packages
+library(tidyverse)
+library(timetk)
+library(tidyquant)
+library(janitor)
+library(lubridate)
+library(zoo)
+library(arrow)
+
+# get data
+library(fredr)
+
+# visualization
+library(gt)
+library(scales)
+library(plotly)
+library(vip)
+library(caret)
+
+# spreadsheet work
+library(readxl)
+library(openxlsx)
+library(googledrive)
+
+# time series ml
+library(tidymodels)
+library(modeltime)
+library(modeltime.ensemble)
+library(modeltime.resample)
+library(prophet)
+library(rules)
+library(trelliscopejs)
+library(ranger)
+library(randomForest)
+library(recipes)
+library(kknn)
+library(kernlab)
+library(thief)
+library(Cubist)
+
+# Timing & Parallel Processing
+library(future)
+library(doFuture)
+library(parallel)
+library(bundle)
+
+
+
+date <- today()
+options(scipen = 9999)
+
+start_date <- as.Date("2021-01-01")
+end_date <- as.Date(today() + 120)
+
+end_date_forecast <- as.Date('2024-12-31')
+# horizon <- interval(end_date, end_date_forecast) %/% days(1)
+horizon <- 365
+
+
+source("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\R\\ds1_new_model_functions.R")
+source("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\R\\ds1_calendar_functions.R")
+
+
+DS_HOST    <- Sys.getenv("DS_HOST")
+DS_DB_NAME <- Sys.getenv("DS_DB_NAME")
+SQL_ID     <- Sys.getenv("SQL_ID")
+SQL_PW     <- Sys.getenv("SQL_PW")
+
+conn <- dbConnect(RMariaDB::MariaDB(),
+                  host     = DS_HOST,
+                  dbname   = DS_DB_NAME,
+                  username = SQL_ID,
+                  password = SQL_PW)
+
+
+
+PROD_HOST    <- Sys.getenv("PROD_HOST")
+PROD_DB_NAME <- Sys.getenv("PROD_DB_NAME")
+PROD_ID      <- Sys.getenv("PROD_ID")
+PROD_PW      <- Sys.getenv("PROD_PW")
+
+prod_conn <- dbConnect(RMariaDB::MariaDB(),
+                        host     = PROD_HOST,
+                        dbname   = PROD_DB_NAME,
+                        username = PROD_ID,
+                        password = PROD_PW)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+# --
+# 0.0 DATA
+## Raw Data
+```{r}
+ds_rates_joined <- read_rds(str_glue("00_data/{date}_ds_rates_joined.rds"))
+
+```
+
+
+## Raw Active Listings Data
+```{r}
+art_listings_raw <- read_parquet("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\art_listing_ids_cleaned.parquet") 
+
+
+
+# cleaned active listings
+art_listings_cleaned <- art_listings_raw %>%
+  select(id, listing_name, beds, full_baths, 
+         guests, rating, reviews, features, gap_stay, 
+         latitude, longitude, min_stay, bed_count, 
+         room_type, gap_weekends) %>%
+  rename(listing_id = id)
+
+```
+
+
+
+## External Regressor Data
+```{r}
+holidays_prepared <- prepare_holidays(conn, country = "US")
+
+inflation_join <- read_rds("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\inflation.rds") %>%
+  dplyr::mutate(inflation = log1p(inflation)) 
+
+```
+
+
+
+## Disconnect SQL
+```{r}
+dbDisconnect(prod_conn)
+dbDisconnect(conn)
+```
+
+
+
+
+# --
+# 1.0 DATA PREP
+## Create Full Dataset
+```{r}
+sample_vector <- ds_rates_joined %>%
+  distinct(listing_id) %>%
+  pull(listing_id) %>%
+  head(4)
+
+
+sample_tbl <- ds_rates_joined %>%
+  filter(listing_id %in% sample_vector)
+
+
+
+
+
+sample_prepared_tbl <- sample_tbl %>%
+  
+  # global changes
+  mutate(rate = log1p(rate)) %>%
+  select(-rate_version) %>%
+  arrange(listing_id, date) %>%
+  
+  # filter out data with less than 1 year of data & by time.
+  group_by(listing_id) %>%
+  filter(n() >= 365) %>%
+  filter_by_time(
+    date,
+    .start_date = start_date,
+    .end_date   = end_date
+  ) %>%
+  filter(n() >= 365) %>%
+  ungroup()
+
+
+
+# create future frame
+full_data_tbl <- sample_prepared_tbl %>%
+  group_by(listing_id) %>%
+  future_frame(
+    .date_var = date,
+    .length_out = horizon,
+    .bind_data = TRUE) %>%
+  ungroup() 
+
+  # add xregs
+  # left_join(holidays_prepared, by = c("date" = "ds")) %>%
+  # left_join(art_listings_cleaned, by = "listing_id") %>%
+  # left_join(inflation_join, by = "date")
+
+
+
+
+
+# visualize
+full_data_tbl %>%
+  group_by(listing_id) %>%
+  plot_time_series(
+    date,
+    rate,
+    .color_var = listing_id,
+    .smooth = F,
+    .trelliscope = F)
+```
+
+
+
+## Transformation Function
+NOTE: We create lags by group
+```{r}
+
+lag_transformer_grouped <- function(data){
+    data %>%
+        group_by(listing_id) %>%
+        tk_augment_lags(rate, .lags = 1:horizon) %>%
+        ungroup()
+}
+```
+
+
+
+
+```{r}
+full_data_lags <- full_data_tbl %>%
+  lag_transformer_grouped()
+```
+
+
+
+```{r}
+train_data <- m4_lags %>%
+    drop_na()
+
+future_data <- m4_lags %>%
+    filter(is.na(value))
+```
+
+
+
+
+## Split into future & prepared
+```{r}
+daily_prepared_tbl <- full_data_lags %>%
+  drop_na()
+
+
+daily_future_tbl <- full_data_lags %>%
+  filter(is.na(rate))
+```
+
+
+```{r}
+model_fit_lm <- linear_reg() %>%
+    set_engine("lm") %>%
+    fit(rate ~ ., data = daily_prepared_tbl)
+```
+
+
+# * Recursive Linear Regression ----
+```{r}
+
+model_fit_lm_recursive <- model_fit_lm %>%
+    recursive(
+
+        # We add an id = "id" to specify the groups
+        id         = "listing_id",
+
+        # Supply the transformation function used to generate the lags
+        transform  = lag_transformer_grouped,
+
+        # We use panel_tail() to grab tail by groups
+        train_tail = panel_tail(daily_prepared_tbl, listing_id, horizon)
+    )
+```
+
+
+# MODELTIME WORKFLOW FOR PANEL DATA ----
+```{r}
+
+modeltime_table(
+    model_fit_lm,
+    model_fit_lm_recursive
+) %>%
+    modeltime_forecast(
+        new_data    = daily_future_tbl,
+        actual_data = sample_prepared_tbl,
+        keep_data   = TRUE
+    ) %>%
+    group_by(listing_id) %>%
+    plot_modeltime_forecast(
+        .interactive = TRUE,
+        .conf_interval_show = FALSE
+    )
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# --
+# 2.0 TRAIN / TEST
+```{r}
+splits <- daily_prepared_tbl %>%
+  time_series_split(
+    date_var = date, 
+    assess = horizon,
+    cumulative = TRUE)
+
+
+splits %>%
+  tk_time_series_cv_plan() %>%
+  plot_time_series_cv_plan(
+    .date_var = date,
+    .value    = rate)
+
+
+splits %>%
+  tk_time_series_cv_plan() %>%
+  filter(.key == 'testing')
+```
+
+
+
+## Clean training set
+x.x Not used; only for example
+Most anomalies/xregs are known, so we should not "clean" them from the training set
+```{r, eval=FALSE}
+train_cleaned <- training(splits) %>%
+  group_by(listing_id) %>%
+  mutate(rate_cleaned = ts_clean_vec(rate, period = 7)) %>%
+  ungroup()
+
+
+# visualize
+train_cleaned %>%
+  group_by(listing_id) %>%
+  pivot_longer(cols = c(rate, rate_cleaned)) %>%
+  mutate(value = expm1(value)) %>%
+  plot_time_series(
+    date, value,
+    .color_var = name,
+    .facet_ncol = 3,
+    .trelliscope = F,
+    .smooth = F
+  )
+```
+
+
+
+# --
+# 3.0 RECIPES
+```{r, include=FALSE}
+# sequential model recipe - date included
+recipe_spec <- recipe(rate ~ ., training(splits)) %>%
+  step_timeseries_signature(date) %>%
+  step_rm(listing_name, features) %>%
+  step_string2factor(room_type) %>%
+  step_zv(all_predictors()) %>%
+  step_rm(matches("(.xts$)|(.iso$)|(hour)|(minute)|(second)|(am.pm)")) %>%
+  step_normalize(matches("(index.num)|(year)|(yday)")) %>%
+  step_dummy(all_nominal_predictors(), one_hot = TRUE)
+
+recipe_spec %>%
+  prep() %>%
+  juice() %>%
+  glimpse()
+
+
+# machine learning recipe - no date
+recipe_spec_ml <- recipe(rate ~ ., training(splits)) %>%
+  step_timeseries_signature(date) %>%
+  step_rm(listing_name, features) %>%
+  step_rm(date) %>%
+  step_string2factor(room_type) %>% 
+  step_zv(all_predictors()) %>%
+  step_rm(matches("(.xts$)|(.iso$)|(hour)|(minute)|(second)|(am.pm)")) %>%
+  step_normalize(matches("(index.num)|(year)|(yday)")) %>%
+  step_dummy(all_nominal_predictors(), one_hot = TRUE)
+
+
+recipe_spec_ml %>%
+  prep() %>%
+  juice() %>%
+  glimpse()
+```
+
+
+
+# --
+# 4.0 ML MODELS
+## Parallel Processing
+```{r}
+parallel_stop()
+
+detectCores()
+doParallel::registerDoParallel(cores = 15)
+```
+
+
+```{r}
+# XGBoost Models
+wflw_fit_xgb_1 <- workflow() %>%
+  add_model(boost_tree(
+    mode = "regression",
+    mtry = 43,
+    trees = 1000,
+    min_n = 28,
+    tree_depth = 2,
+    learn_rate = 0.3,
+    loss_reduction = 0
+  ) %>%
+    set_engine("xgboost")) %>%
+  add_recipe(recipe_spec_ml) %>%
+  fit(training(splits))
+```
+
+
+## Accuracy Check
+```{r}
+# * ACCURACY CHECK ----
+submodels_1_tbl <- modeltime_table(
+  wflw_fit_xgb_1
+) %>%
+  update_model_description(1, "xgb 1")
+
+
+# calibrate on testing data
+submodels_calibrate <- submodels_1_tbl %>%
+  modeltime_calibrate(
+    new_data = testing(splits), 
+    id = "listing_id", 
+    quiet = F) 
+
+
+# GLOBAL accuracy
+submodels_calibrate %>%
+  modeltime_accuracy(acc_by_id = F) %>%
+  arrange(rmse)
+```
+
+
+
+# --
+# 4.1 MODELS w/ TUNE
+## Resamples
+```{r}
+# K-Fold: Non-Sequential Models
+set.seed(123)
+resamples_kfold <- training(splits) %>% vfold_cv(v = 5)
+
+
+# visualize the 10 folds (90/10 testing)
+resamples_kfold %>%
+    tk_time_series_cv_plan() %>%
+    plot_time_series_cv_plan(date, rate, .facet_ncol = 2)
+
+```
+
+
+
+## XGBoost Tune
+```{r}
+model_spec_xgboost_tune <- boost_tree(
+    mode            = "regression", 
+    mtry            = tune(),
+    trees           = 1000,
+    min_n           = tune(),
+    tree_depth      = tune(),
+    learn_rate      = tune(),
+    loss_reduction  = tune()
+) %>% 
+    set_engine("xgboost")
+
+
+wflw_spec_xgboost_tune <- workflow() %>%
+    add_model(model_spec_xgboost_tune) %>%
+    add_recipe(recipe_spec_ml)
+
+
+# Tuning
+set.seed(123)
+tune_results_xgboost <- wflw_spec_xgboost_tune %>%
+    tune_grid(
+        resamples  = resamples_kfold,
+        param_info = extract_parameter_set_dials(wflw_spec_xgboost_tune) %>%
+            update(
+                learn_rate = learn_rate(range = c(0.001, 0.400), trans = NULL)
+            ),
+        grid = 5,
+        control = control_grid(verbose = TRUE, allow_par = TRUE)
+    )
+
+
+# ** Results
+tune_results_xgboost %>% show_best("rmse", n = Inf)
+
+
+# ** Finalize
+set.seed(123)
+wflw_fit_xgboost_tuned <- wflw_spec_xgboost_tune %>%
+  finalize_workflow(select_best(tune_results_xgboost, "rmse")) %>%
+  fit(training(splits))
+```
+
+
+
+
+# --
+# 5.0 EVALUATE FORECAST
+## Combine tuned & submodels
+```{r}
+submodels_2_tbl <- modeltime_table(
+  wflw_fit_xgboost_tuned
+) %>%
+  update_model_description(1, "xgboost tuned") %>%
+  combine_modeltime_tables(submodels_1_tbl)
+```
+
+
+```{r}
+# calibrate
+calibration_tbl <- submodels_1_tbl %>%
+  modeltime_calibrate(
+    new_data = testing(splits), 
+    id = "listing_id")
+
+
+# Accuracy
+calibration_tbl %>%
+  modeltime_accuracy(acc_by_id = F) %>%
+  table_modeltime_accuracy()
+
+
+
+# forecast on daily_prepared_tbl
+forecast_test_tbl <- calibration_tbl %>%
+  modeltime_forecast(
+    new_data    = testing(splits),
+    actual_data = daily_prepared_tbl,
+    conf_by_id  = T,
+    keep_data   = T) %>%
+  mutate(across(
+    .cols = c(.value:.conf_hi, rate),
+    .fns  = expm1
+  ))
+
+
+# visualize
+forecast_test_tbl %>%
+  group_by(listing_id) %>%
+  plot_modeltime_forecast(
+    .conf_interval_show = F,
+    .trelliscope = T, 
+    .facet_ncol  = 3,
+    .title = "All Test Forecasts")
+
+```
+
+
+## Select Best
+```{r}
+# select best by rmse
+calibration_best_models <- calibration_tbl %>%
+  modeltime_accuracy(acc_by_id = TRUE) %>%
+  group_by(listing_id) %>% 
+  slice_min(rmse) %>%
+  slice_min(.model_id) %>%
+  ungroup()
+
+# check accuracy
+calibration_best_models %>%
+  table_modeltime_accuracy()
+
+
+# baseline slightly reduces number of models by inner_join with best selected models
+modeltime_baseline_tbl <- submodels_1_tbl %>%
+  inner_join(calibration_best_models, by = ".model_id") %>%
+  select(.model_id, .model, .model_desc.x) %>% 
+  rename(.model_desc = .model_desc.x)
+
+
+# calibrate again with reduced baseline list
+calibration_baseline_tbl <- modeltime_baseline_tbl %>%
+  modeltime_calibrate(testing(splits), id = "listing_id")
+
+
+data_forecasted <- calibration_baseline_tbl %>%
+  modeltime_forecast(
+    new_data = testing(splits),
+    actual_data = daily_prepared_tbl,
+    conf_by_id = TRUE,
+    keep_data = TRUE)
+
+
+#### FUNCTION: keep up to specific column name #####
+keep_up_to <- function(df, colname){
+  col_i <- which(colnames(data_forecasted) == colname)
+  df[(1:col_i)]
+}
+# example...
+# data_forecasted %>%
+#   keep_up_to("weekend")
+
+
+# create test forecast for best models
+final_baseline_models <- data_forecasted %>%
+  filter(.key == "actual") %>%
+  bind_rows(
+    data_forecasted %>%
+      filter(.key == "prediction") %>%
+      inner_join(calibration_best_models, by = c("listing_id", ".model_id")) %>%
+      keep_up_to(rev(names(data_forecasted))[1]) %>%
+      rename(.model_desc = .model_desc.x)
+  ) 
+
+
+# visualize
+final_baseline_models %>%
+  group_by(listing_id) %>%
+  plot_modeltime_forecast(
+    .conf_interval_show = F,
+    .trelliscope = T, 
+    .facet_ncol  = 3,
+    .title = "Best Test Forecasts")
+
+```
+
+
+
+## Create full_data_tbl in modeltime format
+```{r}
+full_data_modeltime_tbl <- full_data_tbl %>%
+  group_by(listing_id) %>%
+  filter(date < min(daily_prepared_tbl$date)) %>%
+  ungroup() %>%
+  mutate(
+    .model_id = NA,
+    .model_desc = "ACTUAL",
+    .key = "actual",
+    .index = date,
+    .value = rate,
+    .conf_lo = NA,
+    .conf_hi = NA
+  ) %>%
+  mutate(across(
+    .cols = c(.value:.conf_hi, rate),
+    .fns  = expm1
+  ))
+```
+
+
+
+## FORECAST FUTURE
+```{r}
+# Refit on actuals dataset
+model_refit_tbl <- calibration_baseline_tbl %>%
+    modeltime_refit(data = daily_prepared_tbl)
+
+
+# forecast on the future data
+forecast_top_models_tbl <- model_refit_tbl %>%
+  modeltime_forecast(
+    new_data    = daily_future_tbl,
+    actual_data = daily_prepared_tbl,
+    keep_data   = T,
+    conf_by_id  = T) %>%
+  mutate(across(
+    .cols = c(.value:.conf_hi, rate),
+    .fns  = expm1
+  ))
+
+
+# create future forecast for best models
+full_forecast_top_models_tbl <- forecast_top_models_tbl %>%
+  filter(.key == "actual") %>%
+  bind_rows(
+    
+    # inner_join with calibration_best_models again to select the best model
+    forecast_top_models_tbl %>%
+      filter(.key == "prediction") %>%
+      inner_join(calibration_best_models, by = c("listing_id", ".model_id")) %>%
+      keep_up_to(rev(names(forecast_top_models_tbl))[1]) %>%
+      rename(.model_desc = .model_desc.x)
+  ) %>%
+  
+  # bind all historical data
+  bind_rows(full_data_modeltime_tbl) %>%
+  group_by(listing_id) %>%
+  arrange(listing_id, .index) %>%
+  ungroup()
+
+
+# visualize
+full_forecast_top_models_tbl %>%
+  group_by(listing_id) %>%
+  plot_modeltime_forecast(
+    .conf_interval_show = F,
+    .trelliscope = T,
+    .facet_ncol = 3)
+
+```
+
+
+## VIP
+```{r}
+# xgb tuned explained
+xgb_importance <- vip::vi(wflw_fit_xgb_1$fit$fit$fit)
+vip(xgb_importance, geom = "point")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# --
+# Turn off Parallel Processing
+```{r}
+doParallel::stopImplicitCluster()
+```
