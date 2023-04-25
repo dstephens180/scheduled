@@ -1,0 +1,172 @@
+---
+title: "Scratch: Bookings Time-Series"
+---
+
+
+# LIBRARIES
+```{r setup, include=FALSE}
+# sql connect
+library(odbc)
+library(DBI)
+library(arrow)
+
+# core packages
+library(tidyverse)
+library(dbplyr)
+library(timetk)
+library(tidyquant)
+library(janitor)
+library(lubridate)
+library(stringi)
+library(jsonlite)
+library(tidyjson)
+library(data.table)
+
+
+date <- today()
+options(scipen = 9999)
+
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# 0.0 DATA
+```{r}
+
+art_listings_bookings_raw <- read_parquet("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\art_listings_bookings.parquet")
+
+```
+
+
+
+# 1.0 DATA PREP
+```{r}
+
+skimr::skim(art_listings_bookings_raw)
+
+```
+
+
+
+```{r}
+bookings_prepared_tbl <- art_listings_bookings_raw %>%
+  rename(listing_id = listings_id) %>%
+  filter(type == "booked" | type == "booking") %>%
+  mutate(rate = round(rate),
+         rate = ifelse(rate <= 0, NA, rate),
+         days_out = booking_date - created_date) %>%
+  select(-created_date, -text) %>%
+  drop_na()
+
+
+bookings_prepared_tbl
+```
+
+
+
+
+```{r}
+sample_set <- bookings_prepared_tbl[sample(nrow(bookings_prepared_tbl), size = 10), ] %>% select(listing_id) %>% as.vector()
+
+listing_ids <- sample_set[["listing_id"]]
+
+
+
+
+bookings_prepared_tbl %>%
+  filter(listing_id %in% listing_ids) %>%
+  group_by(listing_id) %>%
+  plot_time_series(
+    booking_date, rate,
+    .trelliscope = T,
+    .facet_ncol = 3,
+    .facet_nrow = 2,
+    .smooth = F
+  )
+  
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
