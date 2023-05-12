@@ -717,11 +717,12 @@ unnested_best_refit_tbl <- nested_best_refit_tbl %>%
 
 
 
-# increasing the yoy forecast for each week
+# increasing the yoy forecast by +10% for each week
 forecast_increase <- unnested_best_refit_tbl %>%
   
   # add year & week, and summarize
-  tk_augment_timeseries_signature(date) %>%
+  mutate(year = lubridate::year(ds),
+         week = lubridate::week(ds)) %>%
   group_by(listing_id, year, week) %>%
   summarize(y_week = mean(value, na.rm = T)) %>%
   ungroup() %>%
@@ -737,7 +738,8 @@ forecast_increase <- unnested_best_refit_tbl %>%
 
 # left_join to show prediction columns
 pct_increase_identifier <- unnested_best_refit_tbl %>%
-  tk_augment_timeseries_signature(date) %>%
+  mutate(year = lubridate::year(ds),
+         week = lubridate::week(ds)) %>%
   group_by(listing_id, year, week, type) %>%
   distinct(listing_id, year, week, type) %>%
   ungroup() %>%
@@ -751,7 +753,8 @@ pct_increase_identifier <- unnested_best_refit_tbl %>%
 
 # join all & include increase
 unnested_prepared_best_refit_tbl <- unnested_best_refit_tbl %>%
-  tk_augment_timeseries_signature(date) %>%
+  mutate(year = lubridate::year(ds),
+         week = lubridate::week(ds)) %>%
   select(listing_id, date, value, type, year, week) %>%
   left_join(pct_increase_identifier, by = c('listing_id', 'year', 'week')) %>%
   arrange(listing_id, year, week) %>%

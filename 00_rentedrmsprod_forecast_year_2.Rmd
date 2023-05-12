@@ -59,6 +59,19 @@ source("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\R\\ds1_n
 source("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\R\\ds1_calendar_functions.R")
 
 
+DS_HOST    <- Sys.getenv("DS_HOST")
+DS_DB_NAME <- Sys.getenv("DS_DB_NAME")
+SQL_ID     <- Sys.getenv("SQL_ID")
+SQL_PW     <- Sys.getenv("SQL_PW")
+
+conn <- dbConnect(RMariaDB::MariaDB(),
+                  host     = DS_HOST,
+                  dbname   = DS_DB_NAME,
+                  username = SQL_ID,
+                  password = SQL_PW)
+
+
+
 date <- today()
 options(scipen = 9999)
 
@@ -94,6 +107,15 @@ inflation_join <- read_rds("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_repl
 end_date_forecast <- max(unnested_prepared_best_refit_tbl$date) + 365
 horizon <- 365
 ```
+
+
+## Disconnect SQL
+```{r}
+dbDisconnect(conn)
+```
+
+
+
 
 
 
@@ -477,7 +499,7 @@ nested_best_refit_tbl %>% extract_nested_error_report()
 
 ## Unnest & Prepare for Export
 ```{r}
-pct_increase <- 10
+pct_increase <- 5
 
 
 # prepare for export
@@ -496,7 +518,7 @@ unnested_best_refit_tbl <- nested_best_refit_tbl %>%
 
 
 
-# increasing the yoy forecast for each week
+# increasing the yoy forecast by +5% for each week
 forecast_increase <- unnested_best_refit_tbl %>%
   
   # add year & week, and summarize
