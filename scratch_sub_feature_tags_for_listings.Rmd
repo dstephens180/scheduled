@@ -1,0 +1,158 @@
+---
+title: "Creating Sub-Features for Airbnb/Vrbo Listings"
+
+---
+
+
+# LIBRARIES
+```{r setup, include=FALSE}
+# sql connect
+library(odbc)
+library(DBI)
+library(arrow)
+
+# core packages
+library(tidyverse)
+library(dbplyr)
+library(timetk)
+library(tidyquant)
+library(janitor)
+library(lubridate)
+library(stringi)
+library(jsonlite)
+library(tidyjson)
+library(data.table)
+
+# get data
+library(fredr)
+library(tidycensus)
+
+
+date <- today()
+options(scipen = 9999)
+options(dplyr.summarise.inform = FALSE)
+
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+# 0.0 DATA
+## Synced Art Listings
+```{r}
+geomarket_full_comps_details_tbl <- read_parquet( "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\comps_full_geomarket_details_tbl.parquet")
+
+
+# running test on insideairbnb.com data while 
+listings_filtered_dt <- read_rds("00_data/listings_filtered_dt.rds")
+```
+
+
+## Data Discovery
+```{r}
+
+listings_filtered_dt %>% glimpse()
+
+listings_filtered_dt %>%
+  group_by(room_type) %>%
+  count() %>%
+  arrange(desc(n))
+
+```
+
+
+
+
+# --
+# 1.0 DATA PREP
+```{r}
+listings_prepared_tbl <- listings_filtered_dt %>%
+  
+  as_tibble() %>%
+  select(price, id, listing_url, 
+         name, description, amenities, neighbourhood_cleansed,
+         latitude, longitude, accommodates, 
+         bathrooms_text, bedrooms, beds, 
+         number_of_reviews, review_scores_rating) %>%
+  
+  # create price_rank and use ntile for equal proportion binning
+  mutate(price = price %>% str_remove_all("\\$|,") %>% as.double(),
+         price_rank = ntile(price, 10)) %>%
+  relocate(price_rank) %>%
+  
+  # find min/max of each price_rank group
+  group_by(price_rank) %>%
+  mutate(
+    min_price_by_rank = min(price, na.rm = T),
+    max_price_by_rank = max(price, na.rm = T)
+  ) %>%
+  ungroup() %>%
+  
+  # new character column for priceRange... automated.
+  unite('priceRange', min_price_by_rank:max_price_by_rank, sep = "-", remove = T) %>% 
+  relocate(priceRange) %>%
+  
+  # bathrooms & bedrooms clean up
+  mutate(bathrooms = gsub('[ baths]','',bathrooms_text) %>% as.double() %>% round(., 0)) %>%
+  drop_na(bathrooms) %>%
+  select(-bathrooms_text) %>%
+  mutate(bedrooms = ifelse(is.na(bedrooms), 0, bedrooms))
+
+
+listings_prepared_tbl
+```
+
+
+
+
+
+# --
+# 2.0 TEXT MINING EDA
+## Tokenization
+```{r}
+
+listing_title_words <- listings_prepared_tbl %>%
+  mutate(priceRange = parse_number(priceRange)) %>%
+  unnest_tokens(word, name) %>%
+  anti_join(stop_words, by = "word") %>%
+  filter(!str_detect(word, "[0-9,]+"))
+
+
+# count the most popular words
+listing_title_words %>%
+  filter(!is.na(word)) %>%
+  count(word = word, sort = T)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
