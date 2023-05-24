@@ -2,15 +2,6 @@ library(rmarkdown)
 library(rsconnect)
 
 
-# Tableau extract via python
-Sys.setenv(RSTUDIO_PANDOC = "C:\\Program Files\\Pandoc")
-rmarkdown::render(
-  input       = "C:\\Users\\DavidStephens\\Desktop\\Github\\customer_churn\\00_tableau_data_extract_via_python.Rmd",
-  output_file = "C:\\Users\\DavidStephens\\Desktop\\Github\\customer_churn\\00_tableau_data_extract_via_python.html",
-  output_dir  = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_archive"
-)
-
-
 # ARR Revenue v2 - Feature Engineering
 Sys.setenv(RSTUDIO_PANDOC = "C:\\Program Files\\Pandoc")
 rmarkdown::render(
