@@ -23,6 +23,8 @@ library(jsonlite)
 library(tidyjson)
 library(data.table)
 
+library(blastula)
+
 
 
 date <- today()
@@ -87,6 +89,41 @@ dbDisconnect(prod_conn)
 
 
 
+# 3.0 EMAIL NOTIFICATION
+```{r}
+
+date_time <- add_readable_time()
+
+body_text <- 
+  md(str_glue(
+    
+"
+Good news!
+
+The **rentedrmsprod: Synced Listings Only** script ran successfully on {date_time}.
+
+"))
+
+
+footer_text <- md("sent via the [blastula](https://rstudio.github.io/blastula) R package")
+
+
+
+email <- compose_email(
+  body = body_text,
+  footer = footer_text
+)
+
+
+# send the email
+email %>%
+  smtp_send(
+    from = "dstephens@tnsinc.com",
+    to = "dstephens@tnsinc.com", 
+    subject = str_glue("Synced Listings Only"),
+    credentials = creds_file(file = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\gmail_creds")
+  )
+```
 
 
 
