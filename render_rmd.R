@@ -1,6 +1,15 @@
 library(rmarkdown)
 
 
+# Art Listing Bookings from Production DB
+Sys.setenv(RSTUDIO_PANDOC = "C:\\Program Files\\Pandoc")
+rmarkdown::render(
+  input       = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_rentedrmsprod_art_listings_bookings.Rmd",
+  output_file = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_rentedrmsprod_art_listings_bookings.html",
+  output_dir  = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_archive"
+)
+
+
 # Art Listing Id's from Production DB
 Sys.setenv(RSTUDIO_PANDOC = "C:\\Program Files\\Pandoc")
 rmarkdown::render(
