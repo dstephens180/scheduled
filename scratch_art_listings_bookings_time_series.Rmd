@@ -43,7 +43,6 @@ art_listings_bookings_raw <- read_parquet("C:\\Users\\DavidStephens\\Desktop\\Gi
 
 # 1.0 DATA PREP
 ```{r}
-
 skimr::skim(art_listings_bookings_raw)
 
 ```
@@ -53,12 +52,9 @@ skimr::skim(art_listings_bookings_raw)
 ```{r}
 bookings_prepared_tbl <- art_listings_bookings_raw %>%
   rename(listing_id = listings_id) %>%
-  filter(type == "booked" | type == "booking") %>%
+  # filter(type == "booked" | type == "booking") %>%
   mutate(rate = round(rate),
-         rate = ifelse(rate <= 0, NA, rate),
-         days_out = booking_date - created_date) %>%
-  select(-created_date, -text) %>%
-  drop_na()
+         days_out = booking_date - created_date)
 
 
 bookings_prepared_tbl
