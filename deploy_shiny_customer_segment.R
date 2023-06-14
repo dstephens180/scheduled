@@ -20,15 +20,37 @@ rsconnect::deployApp(
   appFiles = c('02_shiny_tns_customer_network_connections.Rmd',
                'www/tns-small.png',
                '00_data/tns_customer_networks.rds',
-               '00_data/tns_customer_network_tbl_graph.rds'),
+               '00_data/tns_customer_network_tbl_graph.rds',
+               '00_data/customer_description_full.rds',
+               '00_data/customer_correlation_data.rds',
+               '00_data/tenure_full.rds',
+               '00_data/spend_products_full.rds',
+               '00_data/has_child_accounts.rds',
+               '00_data/customer_lat_lon.rds',
+               '00_data/survey_monkey_sentiment_by_account_tbl.rds',
+               '00_data/customer_products_owned.rds',
+               'py/clustering.py',
+               'py/tsne.py',
+               '.Rprofile'),
   server = 'shinyapps.io',
   forceUpdate = T,
   launch.browser = F,
   account = 'msv-analytics')
 
 
+
+link <- "https://msv-analytics.shinyapps.io/tns_customer_networks_qYoPP1O2yVYyeTjJ6ay64D9qcurzYu37/"
+
+
+
 body_text <-
-  blastula::md(stringr::str_glue("Good news! The **Customer Network/Segment Analysis App** was successfully deployed to shinyapps.io on {date_time}."))
+  blastula::md(stringr::str_glue(
+    "Good news!
+
+    The **Customer Segment Analysis App** was successfully deployed to shinyapps.io on {date_time}.
+
+    {link}"
+    ))
 
 email <- blastula::compose_email(body = body_text)
 
