@@ -19,7 +19,7 @@ rsconnect::deployApp(
   appName = "survey_monkey_sentiment_analysis_0i7xueHbqT0YxSmcKZNCqKWsr3",
   appFiles = c('03_shiny_survey_monkey_sentiment_analysis.Rmd',
                'www/tns-small.png',
-               '00_data/survey_monkey_raw.rds',
+               '00_data/survey_monkey_raw.csv',
                '00_data/survey_monkey_sentiment_by_account_tbl.rds'),
   server = 'shinyapps.io',
   forceUpdate = T,
@@ -27,8 +27,17 @@ rsconnect::deployApp(
   account = 'msv-analytics')
 
 
+
+link <- "https://msv-analytics.shinyapps.io/survey_monkey_sentiment_analysis_0i7xueHbqT0YxSmcKZNCqKWsr3/"
+
+
 body_text <-
-  blastula::md(stringr::str_glue("Good news! The **Survey Monkey Sentiment Analysis** was successfully deployed to shinyapps.io on {date_time}."))
+  blastula::md(stringr::str_glue(
+    "Good news!
+
+    The **Survey Monkey Sentiment Analysis** was successfully deployed to shinyapps.io on {date_time}.
+
+    {link}"))
 
 email <- blastula::compose_email(body = body_text)
 
