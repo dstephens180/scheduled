@@ -57,12 +57,26 @@ where sync = 1
 
 ```
 
+## select, non-synced accounts
+```{sql connection=prod_conn, output.var="prod_art_select_listings"}
+select cast(id as CHAR), cast(accounts_id as CHAR), cast(listing_name as CHAR), cast(geomarket as CHAR), cast(rates as CHAR)
+from art_listings
+where (accounts_id = 1355 OR accounts_id = 1343)
+
+```
+
+
+
+
 
 ## pull art_accounts
 ```{sql connection=prod_conn, output.var="prod_art_accounts"}
 select id, account_name, deactivation_reason, deactivation_date
 from art_accounts
 ```
+
+
+
 
 
 ## pull art_listings: details only
@@ -73,6 +87,16 @@ where sync = 1
 
 ```
 
+## select, non-synced accounts
+```{sql connection=prod_conn, output.var="prod_art_select_listings_details"}
+select cast(id as CHAR), cast(details as CHAR)
+from art_listings
+where (accounts_id = 1355 OR accounts_id = 1343)
+
+```
+
+
+
 
 
 
@@ -81,6 +105,7 @@ where sync = 1
 ## Details: Spread & Prepare
 ```{r}
 prod_art_listings_unnested <- prod_art_listings_details %>%
+  bind_rows(prod_art_select_listings_details) %>%
   rename(
     id      = `cast(id as CHAR)`,
     details = `cast(details as CHAR)`) %>% 
@@ -118,6 +143,7 @@ prod_art_listings_unnested %>% glimpse()
 ```{r}
 
 prod_art_rates_unnested <- prod_art_listings %>%
+  bind_rows(prod_art_select_listings) %>%
   rename(
     id           = `cast(id as CHAR)`,
     account_id   = `cast(accounts_id as CHAR)`,
@@ -218,6 +244,7 @@ key_metrics_cleaned <- key_metrics_data %>%
 ## Join listings & accounts
 ```{r}
 prod_art_listings_cleaned <- prod_art_listings %>%
+  bind_rows(prod_art_select_listings) %>%
   rename(
     id           = `cast(id as CHAR)`,
     account_id   = `cast(accounts_id as CHAR)`,
@@ -278,21 +305,6 @@ geomarket_cleaned_tbl <- prod_listings_joined %>%
   filter(full != "",
          comps != "")
 
-
-
-# stringr - no longer needed, as faster with apply/sapply
-# geomarket_cleaned_tbl <- sample_tbl$geomarket %>%
-#   str_replace_all("[^[:alnum:]\\_\\,\\s]", "") %>%
-#   str_replace_all('full ', "") %>%
-#   str_split(pattern = 'comps ', simplify = T) %>%
-#   as_tibble() %>%
-#   rename(full = V1,
-#          comps = V2) %>%
-#   bind_cols(sample_tbl) %>% 
-#   select(id, account_id, account_name, listing_name, full, comps, avg_rate) %>%
-#   mutate(id = as.integer(id)) %>%
-#   filter(full != "null",
-#          comps != "null")
 
 write_rds(geomarket_cleaned_tbl, "00_data/geomarket_cleaned_tbl.rds")
 geomarket_cleaned_tbl <- read_rds("00_data/geomarket_cleaned_tbl.rds")
