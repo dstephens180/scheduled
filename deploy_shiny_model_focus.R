@@ -22,17 +22,40 @@ rsconnect::deployApp(
                'config.yml',
                'art_groups_cleaned.rds',
                'art_listing_ids_cleaned.parquet',
-               'comps_full_geomarket_details_tbl.parquet'),
+               'art_listings_bookings.parquet',
+               'comps_full_geomarket_details_tbl.parquet',
+               "01_healthscore/group_1_forecast_data.rds",
+               "01_healthscore/group_2_forecast_data.rds",
+               "01_healthscore/group_3_forecast_data.rds",
+               "01_healthscore/group_4_forecast_data.rds",
+               "01_healthscore/group_5_forecast_data.rds",
+               "01_healthscore/group_6_forecast_data.rds",
+               "01_healthscore/group_7_forecast_data.rds",
+               "01_healthscore/group_8_forecast_data.rds",
+               "01_healthscore/group_9_forecast_data.rds",
+               "01_healthscore/group_10_forecast_data.rds"
+               ),
   server = 'shinyapps.io',
   forceUpdate = T,
   launch.browser = F,
   account = 'msv-analytics')
 
 
+
+link <- "https://msv-analytics.shinyapps.io/shiny_model_focus_5vrvyRo5mARtetyCGWdFkcKCUzxB2Yde/"
+
+
 body_text <-
-  blastula::md(stringr::str_glue("Good news! The **Shiny Model Focus App** was successfully deployed to shinyapps.io on {date_time}."))
+  blastula::md(stringr::str_glue(
+    "Good news!
+
+    The **Shiny Model Focus App** was successfully deployed to shinyapps.io on {date_time}.
+
+    {link}"
+    ))
 
 email <- blastula::compose_email(body = body_text)
+
 
 
 # send the email
