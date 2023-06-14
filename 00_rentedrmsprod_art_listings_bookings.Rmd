@@ -48,36 +48,44 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 
+# --
 # 1.0 SQL EXTRACTS
 ## pull art_groups
-```{sql connection=prod_conn, output.var="art_listings_bookings"}
+```{sql connection=prod_conn, output.var="art_listings_bookings_raw"}
 select listings_id, type, created_date, text, rate_type, rate, booking_date
 from art_listings_bookings
 ```
 
 
-
-
 ```{r}
-art_listings_bookings
+
+bookings_prepared_tbl <- art_listings_bookings_raw %>%
+  rename(listing_id = listings_id) %>%
+  # filter(type == "booked" | type == "booking") %>%
+  mutate(rate = round(rate),
+         rate = ifelse(rate < 0, rate * -1, rate),
+         days_out = booking_date - created_date)
+
 ```
 
 
 
+
+# --
 # 2.0 SAVE & DISCONNECT
 ## Save as parquet
 ```{r}
 # live file in scheduled/00_data folder
-write_parquet(art_listings_bookings, "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\art_listings_bookings.parquet")
+write_parquet(bookings_prepared_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\art_listings_bookings.parquet")
+
 
 # live file for shiny in art_replica/shiny folder
-write_parquet(art_listings_bookings, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\art_listings_bookings.parquet")
-
+write_parquet(bookings_prepared_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\art_listings_bookings.parquet")
 
 
 
 # time-stamped archive file
-write_parquet(art_listings_bookings, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\archive\\{date}_art_listings_bookings.parquet"))
+write_parquet(bookings_prepared_tbl, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\archive\\{date}_art_listings_bookings.parquet"))
 ```
 
 
@@ -89,6 +97,7 @@ dbDisconnect(prod_conn)
 
 
 
+# --
 # 3.0 EMAIL NOTIFICATION
 ```{r}
 
