@@ -186,8 +186,8 @@ geomarket_metrics <- calendar %>%
   # summarize by listing_id
   group_by(listing_id) %>%
   summarise(
-    mean_rate          = round(mean(rate, na.rm = T), 0),
-    std_dev            = round(sd(rate, na.rm = T), 0),
+    mean_rate = round(mean(rate, na.rm = T), 0),
+    std_dev   = round(sd(rate, na.rm = T), 0),
     
     # booked next n days (1 - availability)
     booked_7_days_out  = 1 - mean(days_out_7, na.rm = T),
