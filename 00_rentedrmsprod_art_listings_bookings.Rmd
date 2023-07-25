@@ -22,6 +22,7 @@ library(stringi)
 library(jsonlite)
 library(tidyjson)
 library(data.table)
+library(dtplyr)
 
 library(blastula)
 
@@ -29,6 +30,12 @@ library(blastula)
 
 date <- today()
 options(scipen = 9999)
+
+today    <- as.Date(today()+1)
+today_7  <- as.Date(today()+7)
+today_14 <- as.Date(today()+14)
+today_30 <- as.Date(today()+30)
+today_90 <- as.Date(today()+90)
 
 
 PROD_HOST    <- Sys.getenv("PROD_HOST")
@@ -57,8 +64,13 @@ from art_listings_bookings
 ```
 
 
-```{r}
 
+
+# --
+# 2.0 PREPARE DATA
+
+## Bookings Prepared
+```{r}
 bookings_prepared_tbl <- art_listings_bookings_raw %>%
   rename(listing_id = listings_id) %>%
   # filter(type == "booked" | type == "booking") %>%
@@ -69,11 +81,93 @@ bookings_prepared_tbl <- art_listings_bookings_raw %>%
 ```
 
 
+## Booked vs. Available
+```{r}
+
+## Use dtplyr for grouped calculations
+query_dtplyr <- bookings_prepared_tbl %>% dtplyr::lazy_dt()
+
+
+
+bookings_prepared_dtplyr <- query_dtplyr %>%
+  
+  select(listing_id, booking_date) %>%
+  arrange(listing_id, booking_date) %>%
+  mutate(booked = 1) %>%
+  
+  # grouped "pad by time" (because it can't work in dtplyr) with complete & fill
+  group_by(listing_id) %>%
+  tidyr::complete(booking_date = seq(min(booking_date), max(booking_date), by = "1 day")) %>%
+  ungroup()
+
+
+
+# convert back to tbl
+bookings_dtplyr_tbl <- as_tibble(bookings_prepared_dtplyr)
+```
+
+
+## Join Data
+```{r}
+bookings_full_tbl <- bookings_dtplyr_tbl %>%
+  left_join(bookings_prepared_tbl, by = c('listing_id', 'booking_date'))
+```
+
+
+## Filter by Time
+```{r}
+# max dates for calculation
+bookings_filter_by_time <- bookings_full_tbl %>%
+  filter_by_time(
+    .date_var   = booking_date, 
+    .start_date = today, 
+    .end_date   = today_90)
+
+
+# booked_all_days_out
+booked_all_days_out <- bookings_filter_by_time %>%
+  dplyr::mutate(
+    
+    # days out booked
+    days_out_7  = ifelse(between(booking_date, today, today_7), booked, NA),
+    days_out_14 = ifelse(between(booking_date, today, today_14), booked, NA),
+    days_out_30 = ifelse(between(booking_date, today, today_30), booked, NA),
+    days_out_90 = ifelse(between(booking_date, today, today_90), booked, NA),
+    
+    # adr next n days
+    adr_7_days  = ifelse(between(booking_date, today, today_7), rate, NA),
+    adr_14_days = ifelse(between(booking_date, today, today_14), rate, NA),
+    adr_30_days = ifelse(between(booking_date, today, today_30), rate, NA),
+    adr_90_days = ifelse(between(booking_date, today, today_90), rate, NA)
+  ) %>%
+  
+  # summarize by listing_id
+  group_by(listing_id) %>%
+  summarise(
+    
+    # booked next n days
+    booked_7_days_out  = sum(days_out_7, na.rm = T)/7,
+    booked_14_days_out = sum(days_out_14, na.rm = T)/14,
+    booked_30_days_out = sum(days_out_30, na.rm = T)/30,
+    booked_90_days_out = sum(days_out_90, na.rm = T)/90,
+    
+    # adr next n days
+    adr_7_days  = round(mean(adr_7_days, na.rm = T)),
+    adr_14_days = round(mean(adr_14_days, na.rm = T)),
+    adr_30_days = round(mean(adr_30_days, na.rm = T)),
+    adr_90_days = round(mean(adr_90_days, na.rm = T))
+  ) %>%
+  ungroup() %>%
+  mutate_all(~replace(., is.na(.), 0))
+```
+
+
 
 
 # --
-# 2.0 SAVE & DISCONNECT
-## Save as parquet
+# 3.0 SAVE & DISCONNECT
+
+## Save bookings_prepared with dates
 ```{r}
 # live file in scheduled/00_data folder
 write_parquet(bookings_prepared_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\art_listings_bookings.parquet")
@@ -86,6 +180,22 @@ write_parquet(bookings_prepared_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\
 
 # time-stamped archive file
 write_parquet(bookings_prepared_tbl, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\archive\\{date}_art_listings_bookings.parquet"))
+```
+
+
+## Save booked_all_days_out summarized by listing_id
+```{r}
+# live file in scheduled/00_data folder
+write_rds(booked_all_days_out, "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\booked_days_out.rds")
+
+
+# live file for shiny in art_replica/shiny folder
+write_rds(booked_all_days_out, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\booked_days_out.rds")
+
+
+
+# time-stamped archive file
+write_rds(booked_all_days_out, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\archive\\{date}_booked_days_out.rds"))
 ```
 
 
@@ -129,7 +239,7 @@ email %>%
   smtp_send(
     from = "dstephens@tnsinc.com",
     to = "dstephens@tnsinc.com", 
-    subject = str_glue("Art Listings Bookings"),
+    subject = str_glue("Art Listings Bookings & Booked Days Out"),
     credentials = creds_file(file = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\gmail_creds")
   )
 ```
