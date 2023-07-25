@@ -5,18 +5,17 @@ library(tidyverse)
 
 date_time <- blastula::add_readable_time()
 
+rsconnect::setAccountInfo(
+  name   ='msv-analytics',
+  token  ='5A59317284D8C8A170ED06710E4C3367',
+  secret ='7+tvar0BSbNFdloTnP7cnnI8XdmZhY9Ke+s+adPv')
+
 
 
 # Customer Network/Segment Analysis
-rsconnect::setAccountInfo(
-  name='msv-analytics',
-  token='5A59317284D8C8A170ED06710E4C3367',
-  secret='7+tvar0BSbNFdloTnP7cnnI8XdmZhY9Ke+s+adPv')
-
-
 rsconnect::deployApp(
-  appDir = "C:\\Users\\DavidStephens\\Desktop\\Github\\customer_churn",
-  appName = "tns_customer_networks_qYoPP1O2yVYyeTjJ6ay64D9qcurzYu37",
+  appDir   = "C:\\Users\\DavidStephens\\Desktop\\Github\\customer_churn",
+  appName  = "tns_customer_networks_qYoPP1O2yVYyeTjJ6ay64D9qcurzYu37",
   appFiles = c('02_shiny_tns_customer_network_connections.Rmd',
                'www/tns-small.png',
                '00_data/tns_customer_networks.rds',
@@ -39,7 +38,9 @@ rsconnect::deployApp(
 
 
 
-link <- "https://msv-analytics.shinyapps.io/tns_customer_networks_qYoPP1O2yVYyeTjJ6ay64D9qcurzYu37/"
+
+link_network <- "https://msv-analytics.shinyapps.io/tns_customer_networks_qYoPP1O2yVYyeTjJ6ay64D9qcurzYu37/"
+
 
 
 
@@ -49,8 +50,9 @@ body_text <-
 
     The **Customer Segment Analysis App** was successfully deployed to shinyapps.io on {date_time}.
 
-    {link}"
-    ))
+    {link_network}"
+  ))
+
 
 email <- blastula::compose_email(body = body_text)
 
@@ -60,5 +62,5 @@ email %>%
   blastula::smtp_send(
     from = "dstephens@tnsinc.com",
     to = "dstephens@tnsinc.com",
-    subject = stringr::str_glue("Customer Segmentation Analysis"),
+    subject = stringr::str_glue("Shiny: Network Analysis"),
     credentials = blastula::creds_file(file = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\gmail_creds"))
