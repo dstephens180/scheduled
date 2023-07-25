@@ -13,7 +13,6 @@ library(arrow)
 
 # core packages
 library(tidyverse)
-library(dbplyr)
 library(timetk)
 library(tidyquant)
 library(janitor)
@@ -23,11 +22,17 @@ library(jsonlite)
 library(tidyjson)
 library(data.table)
 
+
 library(blastula)
 
 
 
-date <- today()
+today    <- as.Date(today()+1)
+today_7  <- as.Date(today()+7)
+today_14 <- as.Date(today()+14)
+today_30 <- as.Date(today()+30)
+today_90 <- as.Date(today()+90)
+
 options(scipen = 9999)
 options(dplyr.summarise.inform = FALSE)
 
@@ -110,7 +115,6 @@ comps_extract_longer <- comps_extract_tbl %>%
 # this is your full tbl that you will use to join after the for loop
 full_comps_extract_longer <- full_extract_longer %>%
   bind_rows(comps_extract_longer)
-  
 ```
 
 
@@ -127,7 +131,7 @@ unique_listing_ids <- full_extract_longer %>%
 
 
 unique_listing_ids_vector <- as.vector(unique_listing_ids %>% pull(listing_id))
-sample_unique_ids_vector <- unique_listing_ids_vector[1:20]
+sample_unique_ids_vector <- unique_listing_ids_vector[1:5]
 ```
 
 
@@ -135,32 +139,80 @@ sample_unique_ids_vector <- unique_listing_ids_vector[1:20]
 ## Filter/Join SQL Tables & Extract Data
 __25 minutes to run this chunk__
 ```{r}
-calendar <- dplyr::tbl(conn, "combined_calendar")
-active_listings <- dplyr::tbl(conn, "combined_active")
-location_listings <- dplyr::tbl(conn, "combined_listings")
+calendar <- tbl(conn, "combined_calendar")
+active_listings <- tbl(conn, "combined_active")
+location_listings <- tbl(conn, "combined_listings")
 
 
-tictoc::tic()
 
-geomarket_grouped_extract <- calendar %>%
-  dplyr::inner_join(active_listings, by = "listing_id") %>%
-  dplyr::inner_join(location_listings, by = "listing_id") %>%
-  dplyr::filter(listing_id %in% local(unique_listing_ids_vector)) %>%
-  dplyr::group_by(listing_id) %>%
-  dplyr::select(listing_id, date, rate, bedrooms, bathrooms, sleeps, rating, reviews, room_type, latitude, longitude, available) %>%
-  dplyr::mutate(days_out_7  = ifelse(date >= as.Date(today()-1) & date <= as.Date(today()-1+7), available, NA),
-                days_out_14 = ifelse(date >= as.Date(today()-1) & date <= as.Date(today()-1+15), available, NA)) %>%
-  dplyr::group_by(listing_id, bedrooms, bathrooms, sleeps, rating, reviews, room_type, latitude, longitude) %>%
-  dplyr::summarise(mean_rate = round(mean(rate, na.rm = T), 0), 
-                   std_dev = round(sd(rate, na.rm = T), 0),
-                   avail_7_days_out = mean(days_out_7, na.rm = T),
-                   avail_14_days_out = mean(days_out_14, na.rm = T)) %>%
-  dplyr::ungroup() %>%
-  dplyr::collect() %>%
-  dplyr::distinct()
+# sample or all unique listings?
+listing_vector_used <- unique_listing_ids_vector
 
-tictoc::toc()
+
+
+# extract listing details
+listing_descriptive_details <- calendar %>%
+  inner_join(active_listings, by = "listing_id") %>%
+  inner_join(location_listings, by = "listing_id") %>%
+  filter(listing_id %in% local(listing_vector_used)) %>%
+  select(listing_id, bedrooms, bathrooms, sleeps, rating, reviews, room_type, latitude, longitude) %>%
+  distinct(listing_id, .keep_all = T) %>%
+  collect()
+
+
+
+# summarize availability and metrics
+geomarket_metrics <- calendar %>%
+  inner_join(active_listings, by = "listing_id") %>%
+  inner_join(location_listings, by = "listing_id") %>%
+  filter(listing_id %in% local(listing_vector_used)) %>%
+  select(listing_id, date, rate, available) %>%
+  
+  dplyr::mutate(
+    
+    # days out availability
+    days_out_7  = ifelse(between(date, today, today_7), available, NA),
+    days_out_14 = ifelse(between(date, today, today_14), available, NA),
+    days_out_30 = ifelse(between(date, today, today_30), available, NA),
+    days_out_90 = ifelse(between(date, today, today_90), available, NA),
+    
+    # adr next n days
+    adr_7_days  = ifelse(between(date, today, today_7), rate, NA),
+    adr_14_days = ifelse(between(date, today, today_14), rate, NA),
+    adr_30_days = ifelse(between(date, today, today_30), rate, NA),
+    adr_90_days = ifelse(between(date, today, today_90), rate, NA)
+  ) %>%
+  
+  # summarize by listing_id
+  group_by(listing_id) %>%
+  summarise(
+    mean_rate          = round(mean(rate, na.rm = T), 0),
+    std_dev            = round(sd(rate, na.rm = T), 0),
+    
+    # booked next n days (1 - availability)
+    booked_7_days_out  = 1 - mean(days_out_7, na.rm = T),
+    booked_14_days_out = 1 - mean(days_out_14, na.rm = T),
+    booked_30_days_out = 1 - mean(days_out_30, na.rm = T),
+    booked_90_days_out = 1 - mean(days_out_90, na.rm = T),
+    
+    # adr next n days
+    adr_7_days  = round(mean(adr_7_days, na.rm = T)),
+    adr_14_days = round(mean(adr_14_days, na.rm = T)),
+    adr_30_days = round(mean(adr_30_days, na.rm = T)),
+    adr_90_days = round(mean(adr_90_days, na.rm = T))
+  ) %>%
+  ungroup() %>%
+  distinct(listing_id, .keep_all = T) %>%
+  collect()
+
+
+
+# join the data
+geomarket_grouped_extract <- listing_descriptive_details %>%
+  left_join(geomarket_metrics, by = "listing_id")
+  
 ```
+
 
 
 ## Join with Original Table
