@@ -18,7 +18,7 @@ rsconnect::deployApp(
   appName  = "survey_monkey_sentiment_analysis_0i7xueHbqT0YxSmcKZNCqKWsr3",
   appFiles = c('03_shiny_survey_monkey_sentiment_analysis.Rmd',
                'www/tns-small.png',
-               '00_data/survey_monkey_raw.csv',
+               '00_data/survey_monkey_raw.rds',
                '00_data/survey_monkey_sentiment_by_account_tbl.rds',
                '00_data/survey_monkey_rollup_metrics.rds'),
   server = 'shinyapps.io',
