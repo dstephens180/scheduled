@@ -6,7 +6,7 @@ library(tidyverse)
 date_time <- blastula::add_readable_time()
 
 
-link_model_focus <- "https://msv-analytics.shinyapps.io/shiny_model_focus_5vrvyRo5mARtetyCGWdFkcKCUzxB2Yde/"
+link_compset_tool <- "https://msv-analytics.shinyapps.io/user_compset_selection_tool_ueV6tc76nFqBm8ufjHHFWrHbg1QyoVSR/"
 
 
 
@@ -17,25 +17,22 @@ rsconnect::setAccountInfo(
 
 
 
-# Shiny Model Focus
+# Compset Selection Tool
 rsconnect::deployApp(
   appDir = "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny",
-  appName = "shiny_model_focus_5vrvyRo5mARtetyCGWdFkcKCUzxB2Yde",
-  appFiles = c('shiny_model_focus.Rmd',
+  appName = "user_compset_selection_tool_ueV6tc76nFqBm8ufjHHFWrHbg1QyoVSR",
+  appFiles = c('shiny_user_compset_selection.Rmd',
                'www/Rented-logo-small.png',
                'config.yml',
                'art_groups_cleaned.rds',
                'art_listing_ids_cleaned.parquet',
                'art_listings_bookings.parquet',
-               'comps_full_geomarket_details_tbl.parquet',
-               'event_data.rds',
-               'booked_days_out.rds'
-               ),
+               'comps_full_geomarket_details_tbl.parquet'
+  ),
   server = 'shinyapps.io',
   forceUpdate = T,
   launch.browser = F,
   account = 'msv-analytics')
-
 
 
 Sys.sleep(5)
@@ -45,13 +42,12 @@ body_text <-
   blastula::md(stringr::str_glue(
     "Good news!
 
-    The **Shiny Model Focus App** was successfully deployed on {date_time}.
+    The **Compset Selection Tool** was successfully deployed on {date_time}.
 
-    {link_model_focus}"
+    {link_compset_tool}"
   ))
 
 email <- blastula::compose_email(body = body_text)
-
 
 
 
@@ -60,8 +56,9 @@ email %>%
   blastula::smtp_send(
     from        = "dstephens@tnsinc.com",
     to          = "dstephens@tnsinc.com",
-    subject     = stringr::str_glue("Shiny: Model Focus"),
+    subject     = stringr::str_glue("Shiny: Compset Selection Tool"),
     credentials = blastula::creds_file(file = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\gmail_creds"))
+
 
 
 
