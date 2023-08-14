@@ -26,7 +26,7 @@ library(data.table)
 library(blastula)
 
 
-
+date     <- as.Date(today())
 today    <- as.Date(today()+1)
 today_7  <- as.Date(today()+7)
 today_14 <- as.Date(today()+14)
@@ -57,6 +57,12 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Synced Art Listings
 ```{r}
 art_listing_ids_cleaned <- read_parquet("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\art_listing_ids_cleaned.parquet")
+
+
+# all art id's with account_id assignment
+accounts_listings_raw <- art_listing_ids_cleaned %>% 
+  select(account_id, id) %>%
+  distinct(id, .keep_all = T)
 ```
 
 
@@ -69,10 +75,6 @@ art_listing_full_comps_tbl <- art_listing_ids_cleaned %>%
   select(id, full, comps) %>%
   rowid_to_column(var = "rowid_column")
 
-
-# sample for testing
-sample_tbl <- art_listing_full_comps_tbl %>%
-  head(5)
 
 
 
@@ -137,7 +139,7 @@ sample_unique_ids_vector <- unique_listing_ids_vector[1:5]
 
 
 ## Filter/Join SQL Tables & Extract Data
-__25 minutes to run this chunk__
+**Long-running script**
 ```{r}
 calendar <- tbl(conn, "combined_calendar")
 active_listings <- tbl(conn, "combined_active")
@@ -181,6 +183,7 @@ geomarket_metrics <- calendar %>%
     adr_14_days = ifelse(between(date, today, today_14), rate, NA),
     adr_30_days = ifelse(between(date, today, today_30), rate, NA),
     adr_90_days = ifelse(between(date, today, today_90), rate, NA)
+    
   ) %>%
   
   # summarize by listing_id
@@ -200,6 +203,7 @@ geomarket_metrics <- calendar %>%
     adr_14_days = round(mean(adr_14_days, na.rm = T)),
     adr_30_days = round(mean(adr_30_days, na.rm = T)),
     adr_90_days = round(mean(adr_90_days, na.rm = T))
+    
   ) %>%
   ungroup() %>%
   distinct(listing_id, .keep_all = T) %>%
@@ -223,6 +227,15 @@ geomarket_full_comps_details_tbl <- full_comps_extract_longer %>%
   relocate(listing_id) %>%
   drop_na(bedrooms)
 
+
+# vtrips only filter
+vtrips_geomarket_full_comps_details_tbl <- geomarket_full_comps_details_tbl %>%
+  left_join(accounts_listings_raw, by = "id") %>%
+  filter(account_id %in% c('655', '830', '1365', 
+                           '1384', '1385', '1386', 
+                           '1390', '1391', '1392')) %>%
+  select(-account_id)
+
 ```
 
 
@@ -240,6 +253,8 @@ write_parquet(geomarket_full_comps_details_tbl, "C:\\Users\\DavidStephens\\Deskt
 write_parquet(geomarket_full_comps_details_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\comps_full_geomarket_details_tbl.parquet")
 
 
+# live VTRIPS ONLY file for shiny in art_replica/shiny folder
+write_rds(vtrips_geomarket_full_comps_details_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\vtrips_comps_full_geomarket_details_tbl.rds")
 
 
 # time-stamped archive file

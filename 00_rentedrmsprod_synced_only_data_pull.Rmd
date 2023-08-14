@@ -94,8 +94,18 @@ where sync = 1
 ```{sql connection=prod_conn, output.var="prod_art_select_listings"}
 select cast(id as CHAR), cast(accounts_id as CHAR), cast(listing_name as CHAR), cast(geomarket as CHAR), cast(rates as CHAR)
 from art_listings
-where (accounts_id = 1333 OR 
-accounts_id = 1363)
+where (accounts_id = 1333 OR
+accounts_id = 1363 OR
+accounts_id = 655 OR
+accounts_id = 830 OR
+accounts_id = 1365 OR
+accounts_id = 1380 OR
+accounts_id = 1384 OR
+accounts_id = 1385 OR
+accounts_id = 1386 OR
+accounts_id = 1390 OR
+accounts_id = 1391 OR
+accounts_id = 1392)
 
 ```
 
@@ -125,8 +135,18 @@ where sync = 1
 ```{sql connection=prod_conn, output.var="prod_art_select_listings_details"}
 select cast(id as CHAR), cast(details as CHAR)
 from art_listings
-where (accounts_id = 1333 OR 
-accounts_id = 1363)
+where (accounts_id = 1333 OR
+accounts_id = 1363 OR
+accounts_id = 655 OR
+accounts_id = 830 OR
+accounts_id = 1365 OR
+accounts_id = 1380 OR
+accounts_id = 1384 OR
+accounts_id = 1385 OR
+accounts_id = 1386 OR
+accounts_id = 1390 OR
+accounts_id = 1391 OR
+accounts_id = 1392)
 
 ```
 
@@ -174,7 +194,6 @@ prod_art_listings_unnested %>% glimpse()
 ```
 
 
-
 ## Unnest rates
 ```{r}
 
@@ -197,6 +216,8 @@ prod_art_rates_unnested <- prod_art_listings %>%
   rowid_to_column(var = "rowid_column")
 
 
+
+
 prod_art_rates_vector <- as.vector(prod_art_rates_unnested %>% pull(rowid_column))
 
 
@@ -207,6 +228,8 @@ key_metrics_data = c()
 
 
 for (i in prod_art_rates_vector) {
+  
+  tryCatch({
   
   selected_column <- i
   
@@ -271,6 +294,8 @@ for (i in prod_art_rates_vector) {
   
   # bind rows of all_container_data
   key_metrics_data <- bind_rows(key_metrics_data, combined_tbl)
+  
+  }, error=function(e){})
   
 }
 
@@ -402,6 +427,14 @@ write_parquet(data_full_cleaned_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\
 
 # live file for shiny in art_replica/shiny folder
 write_parquet(data_full_cleaned_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\art_listing_ids_cleaned.parquet")
+
+
+# live VTRIPS ONLY file for shiny in art_replica/shiny folder
+write_rds(data_full_cleaned_tbl %>%
+                filter(account_id %in% c('655', '830', '1365', 
+                                         '1384', '1385', '1386', 
+                                         '1390', '1391', '1392')),
+              "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\vtrips_art_listing_ids_cleaned.rds")
 
 
 
