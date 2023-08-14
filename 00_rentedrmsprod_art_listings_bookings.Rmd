@@ -135,10 +135,10 @@ booked_all_days_out <- bookings_filter_by_time %>%
     days_out_90 = ifelse(between(booking_date, today, today_90), booked, NA),
     
     # adr next n days
-    adr_7_days  = ifelse(between(booking_date, today, today_7), rate, NA),
-    adr_14_days = ifelse(between(booking_date, today, today_14), rate, NA),
-    adr_30_days = ifelse(between(booking_date, today, today_30), rate, NA),
-    adr_90_days = ifelse(between(booking_date, today, today_90), rate, NA)
+    rate_7_days  = ifelse(between(booking_date, today, today_7), rate, NA),
+    rate_14_days = ifelse(between(booking_date, today, today_14), rate, NA),
+    rate_30_days = ifelse(between(booking_date, today, today_30), rate, NA),
+    rate_90_days = ifelse(between(booking_date, today, today_90), rate, NA)
   ) %>%
   
   # summarize by listing_id
@@ -152,10 +152,10 @@ booked_all_days_out <- bookings_filter_by_time %>%
     booked_90_days_out = sum(days_out_90, na.rm = T)/90,
     
     # adr next n days
-    adr_7_days  = round(mean(adr_7_days, na.rm = T)),
-    adr_14_days = round(mean(adr_14_days, na.rm = T)),
-    adr_30_days = round(mean(adr_30_days, na.rm = T)),
-    adr_90_days = round(mean(adr_90_days, na.rm = T))
+    booked_rate_7_days  = round(mean(rate_7_days, na.rm = T)),
+    booked_rate_14_days = round(mean(rate_14_days, na.rm = T)),
+    booked_rate_30_days = round(mean(rate_30_days, na.rm = T)),
+    booked_rate_90_days = round(mean(rate_90_days, na.rm = T))
   ) %>%
   ungroup() %>%
   mutate_all(~replace(., is.na(.), 0))
