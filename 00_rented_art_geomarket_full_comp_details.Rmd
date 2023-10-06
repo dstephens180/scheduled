@@ -1,5 +1,5 @@
 ---
-title: "rented_art Geomarket Full & Comps Details Data Extract"
+title: "rented_art: Geomarket Full & Comps Details Data Extract"
 ---
 
 
@@ -49,35 +49,45 @@ conn <- dbConnect(RMariaDB::MariaDB(),
                   username = SQL_ID,
                   password = SQL_PW)
 
+
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
+
+
+# --
 # 0.0 DATA
-## Synced Art Listings
+
+## Art Listings
 ```{r}
-art_listing_ids_cleaned <- read_parquet("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\art_listing_ids_cleaned.parquet")
+geomarket_cleaned_tbl <-
+  read_rds("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\geomarket_cleaned_tbl.rds")
 
 
 # all art id's with account_id assignment
-accounts_listings_raw <- art_listing_ids_cleaned %>% 
+accounts_listings_raw <- geomarket_cleaned_tbl %>% 
   select(account_id, id) %>%
   distinct(id, .keep_all = T)
+
 ```
 
 
 
 
+# --
 # 1.0 DATA PREP
+
 ## Prepare Data for Joining after Loop
 ```{r}
-art_listing_full_comps_tbl <- art_listing_ids_cleaned %>%
+art_listing_full_comps_tbl <- geomarket_cleaned_tbl %>%
   select(id, full, comps) %>%
   rowid_to_column(var = "rowid_column")
 
+```
 
 
-
+```{r}
 # full data only 
 full_extract_tbl <- str_split_fixed(art_listing_full_comps_tbl$full, ", ", n = 3000) %>% 
   as_tibble() %>%
@@ -122,7 +132,9 @@ full_comps_extract_longer <- full_extract_longer %>%
 
 
 
+# --
 # 2.0 DATA EXTRACT
+
 ## Unique listing_id
 ```{r}
 # get unique listing_ids
@@ -135,7 +147,6 @@ unique_listing_ids <- full_extract_longer %>%
 unique_listing_ids_vector <- as.vector(unique_listing_ids %>% pull(listing_id))
 sample_unique_ids_vector <- unique_listing_ids_vector[1:5]
 ```
-
 
 
 ## Filter/Join SQL Tables & Extract Data
@@ -227,22 +238,14 @@ geomarket_full_comps_details_tbl <- full_comps_extract_longer %>%
   relocate(listing_id) %>%
   drop_na(bedrooms)
 
-
-# vtrips only filter
-vtrips_geomarket_full_comps_details_tbl <- geomarket_full_comps_details_tbl %>%
-  left_join(accounts_listings_raw, by = "id") %>%
-  filter(account_id %in% c('655', '830', '1365', 
-                           '1384', '1385', '1386', 
-                           '1390', '1391', '1392')) %>%
-  select(-account_id)
-
 ```
 
 
 
 
-
+# --
 # 3.0 SAVE & DISCONNECT
+
 ## Save as parquet
 ```{r}
 # live file in scheduled/00_data folder
@@ -251,10 +254,6 @@ write_parquet(geomarket_full_comps_details_tbl, "C:\\Users\\DavidStephens\\Deskt
 
 # live file for shiny in art_replica/shiny folder
 write_parquet(geomarket_full_comps_details_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\comps_full_geomarket_details_tbl.parquet")
-
-
-# live VTRIPS ONLY file for shiny in art_replica/shiny folder
-write_rds(vtrips_geomarket_full_comps_details_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\vtrips_comps_full_geomarket_details_tbl.rds")
 
 
 # time-stamped archive file
@@ -273,11 +272,7 @@ dbDisconnect(conn)
 
 
 
-
-
-
-
-
+# --
 # 4.0 EMAIL NOTIFICATION
 ```{r}
 

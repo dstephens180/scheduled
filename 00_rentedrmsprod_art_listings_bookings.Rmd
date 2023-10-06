@@ -59,7 +59,7 @@ knitr::opts_chunk$set(echo = TRUE)
 # 1.0 SQL EXTRACTS
 ## pull art_groups
 ```{sql connection=prod_conn, output.var="art_listings_bookings_raw"}
-select listings_id, type, created_date, text, rate_type, rate, booking_date
+select listings_id, booking_id, type, created_date, rate_type, rate, booking_date
 from art_listings_bookings
 ```
 
@@ -69,27 +69,82 @@ from art_listings_bookings
 # --
 # 2.0 PREPARE DATA
 
-## Bookings Prepared
+## Preparing actual bookings only
 ```{r}
-bookings_prepared_tbl <- art_listings_bookings_raw %>%
+bookings_first_tbl <- art_listings_bookings_raw %>%
   rename(listing_id = listings_id) %>%
-  # filter(type == "booked" | type == "booking") %>%
-  mutate(rate = round(rate),
-         rate = ifelse(rate < 0, rate * -1, rate),
-         days_out = booking_date - created_date)
+  filter(type == "booked" | type == "booking") %>%
+  mutate(
+    rate = round(rate),
+    rate = ifelse(rate < 0, rate * -1, rate)
+  ) 
 
+
+blank_ids_fixed <- bookings_first_tbl %>%
+  filter(booking_id == "" | booking_id == "0") %>%
+  group_by(listing_id, created_date, rate) %>%
+  unite(col = "booking_id", 
+        c("listing_id", "created_date", "rate"), 
+        remove = F, na.rm = F, sep = "-") %>%
+  ungroup()
+
+
+
+bookings_cleaned_tbl <- bookings_first_tbl %>%
+  filter(booking_id != "" & booking_id != "0") %>%
+  bind_rows(blank_ids_fixed)
 ```
 
 
+
+
+# --
+# 3.0 RATES & DAYS OUTS
+
+## Bookings Insights
+```{r}
+## Use dtplyr for grouped calculations
+query_bookings_dtplyr <- bookings_cleaned_tbl %>% dtplyr::lazy_dt()
+
+
+
+bookings_prepared_dtplyr <- query_bookings_dtplyr %>%
+  group_by(listing_id, booking_id) %>%
+  summarise(
+    total_rate = sum(rate),
+    rate = mean(rate),
+    created_date = min(created_date, na.rm = T),
+    first_booked_date = min(booking_date, na.rm = T),
+    length_of_stay = n()
+  ) %>%
+  ungroup() %>%
+  mutate(
+    days_out = difftime(first_booked_date, created_date, units = "secs"),
+    days_out = round(as.numeric(days_out / 86400))
+  )
+
+
+
+# convert back to tbl
+bookings_prepared_dtplyr_tbl <- as_tibble(bookings_prepared_dtplyr)
+```
+
+
+
+
+
+
+# --
+# 4.0 BOOKINGS DAYS OUT
+
 ## Booked vs. Available
 ```{r}
-
 ## Use dtplyr for grouped calculations
-query_dtplyr <- bookings_prepared_tbl %>% dtplyr::lazy_dt()
+query_dtplyr <- bookings_cleaned_tbl %>% dtplyr::lazy_dt()
 
 
 
-bookings_prepared_dtplyr <- query_dtplyr %>%
+bookings_time_series_dtplyr <- query_dtplyr %>%
   
   select(listing_id, booking_date) %>%
   arrange(listing_id, booking_date) %>%
@@ -103,20 +158,22 @@ bookings_prepared_dtplyr <- query_dtplyr %>%
 
 
 # convert back to tbl
-bookings_dtplyr_tbl <- as_tibble(bookings_prepared_dtplyr)
+bookings_time_series_dtplyr_tbl <- as_tibble(bookings_time_series_dtplyr)
 ```
 
 
 ## Join Data
 ```{r}
-bookings_full_tbl <- bookings_dtplyr_tbl %>%
-  left_join(bookings_prepared_tbl, by = c('listing_id', 'booking_date'))
+bookings_full_tbl <- bookings_time_series_dtplyr_tbl %>%
+  left_join(bookings_cleaned_tbl, by = c('listing_id', 'booking_date'))
 ```
+
+
 
 
 ## Filter by Time
 ```{r}
-# max dates for calculation
+# max dates for calculation 
 bookings_filter_by_time <- bookings_full_tbl %>%
   filter_by_time(
     .date_var   = booking_date, 
@@ -170,16 +227,16 @@ booked_all_days_out <- bookings_filter_by_time %>%
 ## Save bookings_prepared with dates
 ```{r}
 # live file in scheduled/00_data folder
-write_parquet(bookings_prepared_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\art_listings_bookings.parquet")
+write_parquet(bookings_prepared_dtplyr_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\art_listings_bookings.parquet")
 
 
 # live file for shiny in art_replica/shiny folder
-write_parquet(bookings_prepared_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\art_listings_bookings.parquet")
+write_parquet(bookings_prepared_dtplyr_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\art_listings_bookings.parquet")
 
 
 
 # time-stamped archive file
-write_parquet(bookings_prepared_tbl, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\archive\\{date}_art_listings_bookings.parquet"))
+write_parquet(bookings_prepared_dtplyr_tbl, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\archive\\{date}_art_listings_bookings.parquet"))
 ```
 
 

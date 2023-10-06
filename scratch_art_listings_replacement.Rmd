@@ -1,0 +1,379 @@
+---
+title: "Scratch: Comps/Geomarket Replacement"
+---
+
+
+# LIBRARIES
+```{r setup, include=FALSE}
+
+# sql connect
+library(odbc)
+library(DBI)
+library(arrow)
+library(RMariaDB)
+
+# core packages
+library(tidyverse)
+library(dbplyr)
+library(timetk)
+library(tidyquant)
+library(janitor)
+library(lubridate)
+library(stringi)
+library(jsonlite)
+library(tidyjson)
+library(data.table)
+
+library(blastula)
+
+
+
+date <- today()
+options(scipen = 9999)
+
+
+PROD_HOST    <- Sys.getenv("PROD_HOST")
+PROD_DB_NAME <- Sys.getenv("PROD_DB_NAME")
+PROD_ID      <- Sys.getenv("PROD_ID")
+PROD_PW      <- Sys.getenv("PROD_PW")
+
+prod_conn <- dbConnect(RMariaDB::MariaDB(),
+                        host     = PROD_HOST,
+                        dbname   = PROD_DB_NAME,
+                        username = PROD_ID,
+                        password = PROD_PW)
+
+
+conn <- dbConnect(RMariaDB::MariaDB(),
+                  host     = "rented-datascience.ccem57tyvghb.us-west-2.rds.amazonaws.com",
+                  dbname   = "rented_art",
+                  username = "david",
+                  password = "NZg*2ptvQ@X$uR")
+
+```
+
+
+
+
+# --
+# 0.0 DATA IMPORT
+## Create vector of all full-service clients
+```{r}
+full_service <- c("Arizona Elite Properties", 
+                  "Bear Lake Luxury", 
+                  "BookStayHop LLC", 
+                  "Carolina Stays, Inc", 
+                  "Clemson Vacation Rentals",
+                  "Crown Point - Exclusive Island Rentals",
+                  "Fran Maxon Real Estate", 
+                  "Good Life Vacations", 
+                  "Gulf Coast Beachfronts",
+                  "Hodnett Cooper", 
+                  "Marina Hawaii",
+                  "New Wave Vacation Rentals", 
+                  "Premium Beach Condos",
+                  "ResorticaHawaii.com",
+                  "Santa Barbara Vacation Rentals",
+                  "Sloane Realty Vacations",
+                  "South Key Management Co.",
+                  "Stellar Beach Rentals", 
+                  "Vacation Management Solutions LLC", 
+                  "Vacation Rentals Park City", 
+                  "VB Homes (CEBT Properties, LLC)"
+                  )
+```
+
+
+
+
+# --
+# 1.0 SQL EXTRACTS
+
+## pull geomarket & rates
+```{r}
+art_id <- 74229
+listing_name_default <- 'Zen Bear Retreat - 51ZENBEARSPURN'
+
+
+# this is the listing
+prod_art_listings <- dbGetQuery(prod_conn, str_glue("select cast(id as CHAR), cast(accounts_id as CHAR), cast(listing_name as CHAR), cast(geomarket as CHAR), cast(rates as CHAR)
+from art_listings
+where listing_name = '{listing_name_default}'"))
+
+
+# this is all of the accounts
+prod_art_accounts <- dbGetQuery(prod_conn, str_glue("select id, account_name, deactivation_reason, deactivation_date
+from art_accounts"))
+
+
+# these are the listing details
+prod_art_listings_details <- dbGetQuery(prod_conn, str_glue("select cast(id as CHAR), cast(details as CHAR)
+from art_listings
+where listing_name = '{listing_name_default}'"))
+```
+
+
+## Unnest Listing Details
+```{r}
+prod_art_listings_unnested <- prod_art_listings_details %>%
+  rename(
+    id      = `cast(id as CHAR)`,
+    details = `cast(details as CHAR)`
+  ) %>% 
+  
+  # extract json details
+  rowwise() %>%
+  mutate(details_extract = list(fromJSON(details))) %>%
+  ungroup() %>%
+  
+  # unnest wider
+  unnest_wider(details_extract, simplify = T) %>%
+  select(id, beds, full_baths, half_baths, address, city, state, zip, guests, latitude, longitude) %>%
+  as_tibble() %>%
+  
+  # replace NA text with NA's
+  mutate(across(where(is.character), na_if, "NA")) %>%
+  
+  # convert clean up columns
+  mutate(
+    id = as.integer(id),
+    full_baths = as.numeric(full_baths) + as.numeric(half_baths)
+  ) %>%
+  select(-half_baths) %>%
+  mutate_at(c("beds", "guests", "latitude", "longitude"), as.numeric)
+
+
+prod_art_listings_unnested %>% glimpse()
+```
+
+
+## Unnest Listing Rates
+```{r}
+
+prod_art_rates_unnested <- prod_art_listings %>%
+  rename(
+    id           = `cast(id as CHAR)`,
+    account_id   = `cast(accounts_id as CHAR)`,
+    listing_name = `cast(listing_name as CHAR)`,
+    geomarket    = `cast(geomarket as CHAR)`,
+    rates        = `cast(rates as CHAR)`
+  ) %>%
+  
+  # remove any "null" in geomarket column
+  select(id, rates, geomarket) %>%
+  filter(geomarket != "null") %>%
+  
+  # select only id & rates
+  select(id, rates)
+
+
+
+
+
+inputs <- 
+  as.vector(
+    prod_art_rates_unnested %>%
+      dplyr::pull(rates) %>%
+      jsonlite::fromJSON()) %>%
+  
+  # spread selected values as jstring to avoid "" throwing errors
+  tidyjson::spread_values(
+    max_rate      = tidyjson::jstring(max_rate),
+    min_rate      = tidyjson::jstring(min_rate),
+    base_rate     = tidyjson::jstring(base_rate),
+    min_base_rate = tidyjson::jstring(min_base_rate),
+    max_base_rate = tidyjson::jstring(max_base_rate)
+  ) %>%
+  tibble::as_tibble() %>%
+  
+  # filter is for [1], or $inputs
+  dplyr::filter(document.id == "1")
+
+
+
+### OUTPUTS ###
+outputs <- 
+  as.vector(
+    prod_art_rates_unnested %>%
+      dplyr::pull(rates) %>%
+      jsonlite::fromJSON())[[2]] %>%
+  
+  # spread selected values
+  tidyjson::spread_values(
+    model_rate     = tidyjson::jnumber(model_rate),
+    predicted_rate = tidyjson::jnumber(predicted_rate)
+  ) %>%
+  
+  # mean model & adjusted rates
+  dplyr::summarise(
+    mean_model_rate    = round(mean(model_rate)),
+    mean_adjusted_rate = round(mean(predicted_rate)),
+    adr_30_days        = round(mean(head(predicted_rate, 30), na.rm = T)),
+    adr_90_days        = round(mean(head(predicted_rate, 90), na.rm = T))
+  )
+
+
+key_metrics_cleaned <- bind_cols(inputs, outputs) %>%
+  
+  # add rowid column for later joining
+  select(-document.id) %>%
+  mutate(id = as.character(art_id)) %>%
+  
+  # clean up jstring (avoiding errors) to numeric
+  mutate(
+    max_rate = ifelse(max_rate == "", NA, as.numeric(max_rate)),
+    min_rate = ifelse(min_rate == "", NA, as.numeric(min_rate)),
+    base_rate = ifelse(base_rate == "", NA, as.numeric(base_rate)),
+    min_base_rate = ifelse(min_base_rate == "", NA, as.numeric(min_base_rate)),
+    max_base_rate = ifelse(max_base_rate == "", NA, as.numeric(max_base_rate))
+  ) %>%
+  relocate(id)
+```
+
+
+
+## Join listings & accounts
+```{r}
+prod_art_listings_cleaned <- prod_art_listings %>%
+  rename(
+    id           = `cast(id as CHAR)`,
+    account_id   = `cast(accounts_id as CHAR)`,
+    listing_name = `cast(listing_name as CHAR)`,
+    geomarket    = `cast(geomarket as CHAR)`,
+    rates        = `cast(rates as CHAR)`
+  )
+
+
+# both deactivation_reason/date should be NA/NULL values to be truly activated
+prod_art_accounts_cleaned <- prod_art_accounts %>%
+  mutate(full_service = ifelse(account_name %in% full_service, "full-service", "art-only")) %>%
+  filter(is.na(deactivation_date) & is.na(deactivation_reason)) %>%
+  mutate(account_id = as.character(id),
+         active     = "active") %>%
+  select(account_id, account_name, active, full_service)
+
+
+
+prod_listings_joined <- prod_art_listings_cleaned %>%
+  left_join(prod_art_accounts_cleaned, by = "account_id") %>%
+  left_join(key_metrics_cleaned, by = "id") %>%
+  filter(active == "active")
+
+
+
+prod_listings_joined %>% glimpse()
+```
+
+
+
+
+# --
+# 2.0 DATA PREP
+## Geomarket Cleaning
+```{r}
+
+
+
+# unnest & apply (over columns) and sapply (iterate over lists)
+geomarket_cleaned_tbl <- prod_listings_joined %>%
+  rowwise() %>%
+  mutate(geomarket_extract = list(fromJSON(geomarket))) %>%
+  ungroup() %>%
+  unnest_wider(geomarket_extract) %>%
+  select(
+    id, account_id, 
+    account_name, listing_name, 
+    full_service, 
+    full, comps, 
+    max_rate, min_rate, 
+    base_rate, 
+    min_base_rate, max_base_rate, 
+    mean_model_rate, 
+    mean_adjusted_rate,
+    adr_30_days,
+    adr_90_days
+  ) %>%
+  mutate(
+    id = as.integer(id),
+    max_rate = as.numeric(max_rate),
+    min_rate = as.numeric(min_rate),
+    base_rate = as.numeric(base_rate),
+    min_base_rate = as.numeric(min_base_rate),
+    max_base_rate = as.numeric(max_base_rate),
+    mean_model_rate = as.numeric(mean_model_rate),
+    mean_adjusted_rate = as.numeric(mean_adjusted_rate),
+    adr_30_days = as.numeric(adr_30_days),
+    adr_90_days = as.numeric(adr_90_days)
+  )
+```
+
+
+
+## Join with details data
+```{r}
+data_full_cleaned_tbl <- geomarket_cleaned_tbl %>%
+  left_join(prod_art_listings_unnested, by = "id")
+
+data_full_cleaned_tbl %>% glimpse()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

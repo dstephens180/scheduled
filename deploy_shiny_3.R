@@ -24,10 +24,9 @@ rsconnect::deployApp(
   appFiles = c('shiny_model_focus.Rmd',
                'www/Rented-logo-small.png',
                'config.yml',
-               'art_groups_cleaned.rds',
                'art_listing_ids_cleaned.parquet',
-               'art_listings_bookings.parquet',
                'comps_full_geomarket_details_tbl.parquet',
+               'art_listings_bookings.parquet',
                'event_data.rds',
                'booked_days_out.rds'
                ),

@@ -23,10 +23,7 @@ rsconnect::deployApp(
   appName = "user_compset_selection_tool_ueV6tc76nFqBm8ufjHHFWrHbg1QyoVSR",
   appFiles = c('shiny_user_compset_selection.Rmd',
                'www/Rented-logo-small.png',
-               'config.yml',
-               'art_groups_cleaned.rds',
                'art_listing_ids_cleaned.parquet',
-               'art_listings_bookings.parquet',
                'comps_full_geomarket_details_tbl.parquet'
   ),
   server = 'shinyapps.io',

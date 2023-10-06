@@ -30,6 +30,9 @@ library(blastula)
 date <- today()
 options(scipen = 9999)
 
+beginning_url <- '<img src="'
+ending_url    <- '" height="70"></img>'
+
 
 PROD_HOST    <- Sys.getenv("PROD_HOST")
 PROD_DB_NAME <- Sys.getenv("PROD_DB_NAME")
@@ -90,22 +93,23 @@ where sync = 1
 
 ```
 
+
 ## select, non-synced accounts
 ```{sql connection=prod_conn, output.var="prod_art_select_listings"}
 select cast(id as CHAR), cast(accounts_id as CHAR), cast(listing_name as CHAR), cast(geomarket as CHAR), cast(rates as CHAR)
 from art_listings
-where (accounts_id = 1333 OR
+where (
+accounts_id = 1320 OR
 accounts_id = 1363 OR
-accounts_id = 655 OR
-accounts_id = 830 OR
 accounts_id = 1365 OR
 accounts_id = 1380 OR
-accounts_id = 1384 OR
-accounts_id = 1385 OR
 accounts_id = 1386 OR
 accounts_id = 1390 OR
 accounts_id = 1391 OR
-accounts_id = 1392)
+accounts_id = 1392 OR
+accounts_id = 1405 OR
+accounts_id = 1414 OR
+accounts_id = 1416)
 
 ```
 
@@ -131,22 +135,23 @@ where sync = 1
 
 ```
 
+
 ## select, non-synced accounts
 ```{sql connection=prod_conn, output.var="prod_art_select_listings_details"}
 select cast(id as CHAR), cast(details as CHAR)
 from art_listings
-where (accounts_id = 1333 OR
+where (
+accounts_id = 1320 OR
 accounts_id = 1363 OR
-accounts_id = 655 OR
-accounts_id = 830 OR
 accounts_id = 1365 OR
 accounts_id = 1380 OR
-accounts_id = 1384 OR
-accounts_id = 1385 OR
 accounts_id = 1386 OR
 accounts_id = 1390 OR
 accounts_id = 1391 OR
-accounts_id = 1392)
+accounts_id = 1392 OR
+accounts_id = 1405 OR
+accounts_id = 1414 OR
+accounts_id = 1416)
 
 ```
 
@@ -163,7 +168,8 @@ prod_art_listings_unnested <- prod_art_listings_details %>%
   bind_rows(prod_art_select_listings_details) %>%
   rename(
     id      = `cast(id as CHAR)`,
-    details = `cast(details as CHAR)`) %>% 
+    details = `cast(details as CHAR)`
+  ) %>% 
   
   # extract json details
   rowwise() %>%
@@ -183,8 +189,10 @@ prod_art_listings_unnested <- prod_art_listings_details %>%
   mutate(across(where(is.character), na_if, "NA")) %>%
   
   # convert clean up columns
-  mutate(id = as.integer(id),
-         full_baths = as.numeric(full_baths) + as.numeric(half_baths)) %>%
+  mutate(
+    id = as.integer(id),
+    full_baths = as.numeric(full_baths) + as.numeric(half_baths)
+  ) %>%
   select(-half_baths, -baths) %>%
   mutate_at(c("beds", "guests", "rating", "reviews", "gap_stay", "latitude", "longitude", "min_stay", "bed_count", "min_stay_weekends", "min_stay_close", "min_stay_close_days"), as.numeric)
 
@@ -208,7 +216,7 @@ prod_art_rates_unnested <- prod_art_listings %>%
   ) %>%
   
   # remove any "null" in geomarket column
-  select(id, rates, geomarket) %>%
+  select(id, geomarket, rates) %>%
   filter(geomarket != "null") %>%
   
   # select only id & rates
@@ -242,11 +250,12 @@ for (i in prod_art_rates_vector) {
     
     # spread selected values as jstring to avoid "" throwing errors
     tidyjson::spread_values(
-      max_rate            = tidyjson::jstring(max_rate),
-      min_rate            = tidyjson::jstring(min_rate),
-      suggested_base_rate = tidyjson::jstring(min_base_rate),
-      min_base_rate       = tidyjson::jstring(min_base_rate),
-      max_base_rate       = tidyjson::jstring(max_base_rate)
+      max_rate      = tidyjson::jstring(max_rate),
+      min_rate      = tidyjson::jstring(min_rate),
+      base_rate     = tidyjson::jstring(base_rate),
+      suggested_base_rate = tidyjson::jstring(suggested_base_rate),
+      min_base_rate = tidyjson::jstring(min_base_rate),
+      max_base_rate = tidyjson::jstring(max_base_rate)
     ) %>%
     tibble::as_tibble() %>%
     
@@ -285,11 +294,13 @@ for (i in prod_art_rates_vector) {
     select(-document.id) %>%
     
     # clean up jstring (avoiding errors) to numeric
-    mutate(max_rate = ifelse(max_rate == "", NA, as.numeric(max_rate)),
-           min_rate = ifelse(min_rate == "", NA, as.numeric(min_rate)),
-           suggested_base_rate = ifelse(suggested_base_rate == "", NA, as.numeric(suggested_base_rate)),
-           min_base_rate = ifelse(min_base_rate == "", NA, as.numeric(min_base_rate)),
-           max_base_rate = ifelse(max_base_rate == "", NA, as.numeric(max_base_rate)))
+    mutate(
+      max_rate = ifelse(max_rate == "", NA, as.numeric(max_rate)),
+      min_rate = ifelse(min_rate == "", NA, as.numeric(min_rate)),
+      base_rate = ifelse(base_rate == "", NA, as.numeric(base_rate)),
+      suggested_base_rate = ifelse(suggested_base_rate == "", NA, as.numeric(suggested_base_rate)),
+      min_base_rate = ifelse(min_base_rate == "", NA, as.numeric(min_base_rate)),
+      max_base_rate = ifelse(max_base_rate == "", NA, as.numeric(max_base_rate)))
   
   
   # bind rows of all_container_data
@@ -320,15 +331,17 @@ prod_art_listings_cleaned <- prod_art_listings %>%
     listing_name = `cast(listing_name as CHAR)`,
     geomarket    = `cast(geomarket as CHAR)`,
     rates        = `cast(rates as CHAR)`
-  ) 
+  )
 
 
 # both deactivation_reason/date should be NA/NULL values to be truly activated
 prod_art_accounts_cleaned <- prod_art_accounts %>%
   mutate(full_service = ifelse(account_name %in% full_service, "full-service", "art-only")) %>%
   filter(is.na(deactivation_date) & is.na(deactivation_reason)) %>%
-  mutate(account_id = as.character(id),
-         active     = "active") %>%
+  mutate(
+    account_id = as.character(id),
+    active     = "active"
+  ) %>%
   select(account_id, account_name, active, full_service)
 
 
@@ -363,21 +376,29 @@ geomarket_cleaned_tbl <- prod_listings_joined %>%
   unnest_wider(geomarket_extract) %>%
   apply(2, function(y) sapply(y, function(x) paste(unlist(x), collapse = ", "))) %>%
   as_tibble() %>%
-  select(id, account_id, 
-         account_name, listing_name, 
-         full_service, 
-         full, comps, 
-         max_rate, min_rate, 
-         suggested_base_rate, 
-         min_base_rate, max_base_rate, 
-         mean_model_rate, 
-         mean_adjusted_rate,
-         adr_30_days,
-         adr_90_days) %>%
+  select(
+    id, 
+    account_id, 
+    account_name, 
+    listing_name, 
+    full_service, 
+    full, 
+    comps,
+    max_rate, min_rate, 
+    base_rate, 
+    suggested_base_rate,
+    min_base_rate,
+    max_base_rate, 
+    mean_model_rate, 
+    mean_adjusted_rate,
+    adr_30_days,
+    adr_90_days
+  ) %>%
   mutate(
     id = as.integer(id),
     max_rate = as.numeric(max_rate),
     min_rate = as.numeric(min_rate),
+    base_rate = as.numeric(base_rate),
     suggested_base_rate = as.numeric(suggested_base_rate),
     min_base_rate = as.numeric(min_base_rate),
     max_base_rate = as.numeric(max_base_rate),
@@ -386,23 +407,77 @@ geomarket_cleaned_tbl <- prod_listings_joined %>%
     adr_30_days = as.numeric(adr_30_days),
     adr_90_days = as.numeric(adr_90_days)
   ) %>%
+  distinct(id, .keep_all = T) %>%
   filter(full  != "",
          comps != "")
 
 
+
+# this is used for full/comp sets
 write_rds(geomarket_cleaned_tbl, "00_data/geomarket_cleaned_tbl.rds")
+write_rds(geomarket_cleaned_tbl, str_glue("00_data/archive/{date}_geomarket_cleaned_tbl.rds"))
+
 geomarket_cleaned_tbl <- read_rds("00_data/geomarket_cleaned_tbl.rds")
 ```
 
 
 
-## Join with details data
+## Join and finalize
 ```{r}
 data_full_cleaned_tbl <- geomarket_cleaned_tbl %>%
   left_join(prod_art_listings_unnested, by = "id") %>%
+  filter(account_name != "Art Demo - Smoky Mountains") %>%
   distinct(id, .keep_all = T) %>%
-  filter(account_name != "Art Demo - Smoky Mountains")
+  
+  # add thumbnail
+  mutate(thumbnail = str_glue("{beginning_url}{img_url}{ending_url}")) %>%
+  relocate(thumbnail) %>%
+  
+  # change 0 to NA in lat/long
+  mutate_at(c('latitude', 'longitude'), ~na_if(., 0)) %>%
+  
+  # clean city names
+  mutate(city = make_clean_names(city, allow_dupes = T)) %>%
+  mutate(city = sub("^(.)", "\\U\\1", gsub("_", " ", city), perl = TRUE)) %>%
+  mutate(city = str_to_title(city)) %>%
+  mutate(city = ifelse(str_detect("Na", city), NA, city)) %>%
+  
+  # select only what matters
+  select(
+    thumbnail,
+    id, 
+    account_id, 
+    account_name, 
+    listing_name, 
+    full_service, 
+    max_rate, 
+    min_rate, 
+    base_rate, 
+    suggested_base_rate,
+    min_base_rate, 
+    max_base_rate, 
+    mean_model_rate, 
+    mean_adjusted_rate,
+    adr_30_days,
+    adr_90_days,
+    city,
+    state,
+    zip,
+    country,
+    room_type,
+    beds,
+    full_baths,
+    rating,
+    reviews,
+    latitude,
+    longitude,
+    features
+  )
 
+  
+  
+  
+  
 data_full_cleaned_tbl %>% glimpse()
 ```
 
@@ -431,9 +506,7 @@ write_parquet(data_full_cleaned_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\
 
 # live VTRIPS ONLY file for shiny in art_replica/shiny folder
 write_rds(data_full_cleaned_tbl %>%
-                filter(account_id %in% c('655', '830', '1365', 
-                                         '1384', '1385', '1386', 
-                                         '1390', '1391', '1392')),
+                filter(account_id %in% c('1365', '1386', '1390', '1391', '1392')),
               "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\vtrips_art_listing_ids_cleaned.rds")
 
 

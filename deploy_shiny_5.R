@@ -6,7 +6,7 @@ library(tidyverse)
 date_time <- blastula::add_readable_time()
 
 
-link_vtrips_dashboard <- "https://msv-analytics.shinyapps.io/vtrips_dashboard_yOh5m7fPZLrR4dLNsfn8ymtmQzkL6soD/"
+link_compset_tool <- "https://msv-analytics.shinyapps.io/shiny_kdd_direct_pms_sszqoRMwesSARXErmCyJpKdXmCwIrD7O/"
 
 
 
@@ -17,25 +17,33 @@ rsconnect::setAccountInfo(
 
 
 
-# Vtrips Dashboard
+# Compset Selection Tool
 rsconnect::deployApp(
-  appDir = "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny",
-  appName = "vtrips_dashboard_yOh5m7fPZLrR4dLNsfn8ymtmQzkL6soD",
-  appFiles = c('shiny_model_focus_vtrips.Rmd',
+  appDir = "C:\\Users\\DavidStephens\\Desktop\\Github\\market-segmentation",
+  appName = "shiny_kdd_direct_pms_sszqoRMwesSARXErmCyJpKdXmCwIrD7O",
+  appFiles = c('shiny_kdd_direct_pms.Rmd',
                'www/Rented-logo-small.png',
-               'config.yml',
-               'art_groups_cleaned.rds',
-               'vtrips_art_listing_ids_cleaned.rds',
-               'art_listings_bookings.parquet',
-               'vtrips_comps_full_geomarket_details_tbl.rds',
-               'event_data.rds',
-               'booked_days_out.rds'
+               '00_data/my_selected_markets_tbl.rds',
+               '00_data/all_vacation_area_markets_tbl.rds',
+               '02_historical_market_benchmark/market_forecasts/adr_forecast.rds',
+               '02_historical_market_benchmark/market_forecasts/averageBookingWindow_forecast.rds',
+               '02_historical_market_benchmark/market_forecasts/occupancy_forecast.rds',
+               '02_historical_market_benchmark/market_forecasts/revenue_per_unit_forecast.rds',
+               '02_historical_market_benchmark/2015_rollup_metrics.rds',
+               '02_historical_market_benchmark/2016_rollup_metrics.rds',
+               '02_historical_market_benchmark/2017_rollup_metrics.rds',
+               '02_historical_market_benchmark/2018_rollup_metrics.rds',
+               '02_historical_market_benchmark/2019_rollup_metrics.rds',
+               '02_historical_market_benchmark/2020_rollup_metrics.rds',
+               '02_historical_market_benchmark/2021_rollup_metrics.rds',
+               '02_historical_market_benchmark/2022_rollup_metrics.rds',
+               '02_historical_market_benchmark/2023_rollup_metrics.rds'
+
   ),
   server = 'shinyapps.io',
   forceUpdate = T,
   launch.browser = F,
   account = 'msv-analytics')
-
 
 
 Sys.sleep(5)
@@ -45,13 +53,12 @@ body_text <-
   blastula::md(stringr::str_glue(
     "Good news!
 
-    The **Vtrips Dasbhoard** was successfully deployed on {date_time}.
+    The **Market Benchmarking App** was successfully deployed on {date_time}.
 
-    {link_vtrips_dashboard}"
+    {link_compset_tool}"
   ))
 
 email <- blastula::compose_email(body = body_text)
-
 
 
 
@@ -60,9 +67,8 @@ email %>%
   blastula::smtp_send(
     from        = "dstephens@tnsinc.com",
     to          = "dstephens@tnsinc.com",
-    subject     = stringr::str_glue("Shiny: Vtrips Dashboard"),
+    subject     = stringr::str_glue("Shiny: Market Benchmarking"),
     credentials = blastula::creds_file(file = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\gmail_creds"))
-
 
 
 
