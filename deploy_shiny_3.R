@@ -27,7 +27,7 @@ rsconnect::deployApp(
                'art_listing_ids_cleaned.parquet',
                'comps_full_geomarket_details_tbl.parquet',
                'art_listings_bookings.parquet',
-               'event_data.rds',
+               # 'event_data.rds',
                'booked_days_out.rds'
                ),
   server = 'shinyapps.io',

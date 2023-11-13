@@ -37,7 +37,8 @@ rsconnect::deployApp(
                '02_historical_market_benchmark/2020_rollup_metrics.rds',
                '02_historical_market_benchmark/2021_rollup_metrics.rds',
                '02_historical_market_benchmark/2022_rollup_metrics.rds',
-               '02_historical_market_benchmark/2023_rollup_metrics.rds'
+               '02_historical_market_benchmark/2023_rollup_metrics.rds',
+               '03_vrbo_api_requests/vrbo_full_prepared.rds'
 
   ),
   server = 'shinyapps.io',
