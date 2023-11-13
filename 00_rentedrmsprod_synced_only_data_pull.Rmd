@@ -87,7 +87,7 @@ full_service <- c("Arizona Elite Properties",
 # 1.0 SQL EXTRACTS
 ## pull art_listings: geomarket & rates
 ```{sql connection=prod_conn, output.var="prod_art_listings"}
-select cast(id as CHAR), cast(accounts_id as CHAR), cast(listing_name as CHAR), cast(geomarket as CHAR), cast(rates as CHAR)
+select cast(id as CHAR), cast(accounts_id as CHAR), cast(listing_name as CHAR), cast(geomarket as CHAR), cast(rates as CHAR), cast(availability as CHAR)
 from art_listings
 where sync = 1
 
@@ -212,7 +212,8 @@ prod_art_rates_unnested <- prod_art_listings %>%
     account_id   = `cast(accounts_id as CHAR)`,
     listing_name = `cast(listing_name as CHAR)`,
     geomarket    = `cast(geomarket as CHAR)`,
-    rates        = `cast(rates as CHAR)`
+    rates        = `cast(rates as CHAR)`,
+    availability = `cast(availability as CHAR)`
   ) %>%
   
   # remove any "null" in geomarket column
@@ -282,8 +283,10 @@ for (i in prod_art_rates_vector) {
     dplyr::summarise(
       mean_model_rate    = round(mean(model_rate)),
       mean_adjusted_rate = round(mean(predicted_rate)),
-      adr_30_days        = round(mean(head(predicted_rate, 30), na.rm = T)),
-      adr_90_days        = round(mean(head(predicted_rate, 90), na.rm = T))
+      adr_7_days  = mean(head(predicted_rate, 7), na.rm = T),
+      adr_14_days = mean(head(predicted_rate, 14), na.rm = T),
+      adr_30_days = mean(head(predicted_rate, 30), na.rm = T),
+      adr_90_days = mean(head(predicted_rate, 90), na.rm = T)
     )
   
   
@@ -321,6 +324,96 @@ key_metrics_cleaned <- key_metrics_data %>%
 
 
 
+## Unnest availability
+```{r}
+
+prod_art_availability_unnested <- prod_art_listings %>%
+  bind_rows(prod_art_select_listings) %>%
+  rename(
+    id           = `cast(id as CHAR)`,
+    account_id   = `cast(accounts_id as CHAR)`,
+    listing_name = `cast(listing_name as CHAR)`,
+    geomarket    = `cast(geomarket as CHAR)`,
+    rates        = `cast(rates as CHAR)`,
+    availability = `cast(availability as CHAR)`
+  ) %>%
+  
+  # remove any "null" in geomarket column
+  select(id, geomarket, availability) %>%
+  filter(geomarket != "null") %>%
+  
+  # select only id & availability
+  select(id, availability) %>%
+  rowid_to_column(var = "rowid_column")
+
+
+
+
+prod_art_availability_vector <- as.vector(prod_art_availability_unnested %>% pull(rowid_column))
+
+
+
+### FOR LOOP ###
+# create empty vector
+availability_data = c()
+
+
+for (i in prod_art_availability_vector) {
+  
+  tryCatch({
+  
+  selected_column <- i
+  
+  combined_tbl <- 
+    as.vector(
+      prod_art_availability_unnested %>%
+        dplyr::filter(rowid_column == selected_column) %>%
+        dplyr::pull(availability) %>%
+        jsonlite::fromJSON()) %>%
+    
+    # spread selected values
+    tidyjson::spread_values(
+      available     = tidyjson::jnumber(available)
+    ) %>%
+    
+    # calculate next n days booked (1 - availability)
+    dplyr::summarise(
+      booked_7_days_out  = 1 - mean(head(available, 7), na.rm = T),
+      booked_14_days_out = 1 - mean(head(available, 14), na.rm = T),
+      booked_30_days_out = 1 - mean(head(available, 30), na.rm = T),
+      booked_90_days_out = 1 - mean(head(available, 90), na.rm = T)
+    ) %>%
+    
+    # add rowid column for later joining
+    mutate(rowid_column = i) %>%
+  
+    # clean up jstring (avoiding errors) to numeric
+    mutate(
+      booked_7_days_out = ifelse(booked_7_days_out == "", NA, as.numeric(booked_7_days_out)),
+      booked_14_days_out = ifelse(booked_14_days_out == "", NA, as.numeric(booked_14_days_out)),
+      booked_30_days_out = ifelse(booked_30_days_out == "", NA, as.numeric(booked_30_days_out)),
+      booked_90_days_out = ifelse(booked_90_days_out == "", NA, as.numeric(booked_90_days_out))
+    )
+    
+  
+  
+  # bind rows of all_container_data
+  availability_data <- bind_rows(availability_data, combined_tbl)
+  
+  }, error=function(e){})
+  
+}
+
+
+
+# join with id's
+availability_cleaned <- availability_data %>%
+  left_join(prod_art_rates_unnested %>% select(rowid_column, id), by = "rowid_column") %>%
+  select(-rowid_column) %>%
+  relocate(id)
+```
+
+
 ## Join listings & accounts
 ```{r}
 prod_art_listings_cleaned <- prod_art_listings %>%
@@ -330,7 +423,8 @@ prod_art_listings_cleaned <- prod_art_listings %>%
     account_id   = `cast(accounts_id as CHAR)`,
     listing_name = `cast(listing_name as CHAR)`,
     geomarket    = `cast(geomarket as CHAR)`,
-    rates        = `cast(rates as CHAR)`
+    rates        = `cast(rates as CHAR)`,
+    availability = `cast(availability as CHAR)`
   )
 
 
@@ -349,6 +443,7 @@ prod_art_accounts_cleaned <- prod_art_accounts %>%
 prod_listings_joined <- prod_art_listings_cleaned %>%
   left_join(prod_art_accounts_cleaned, by = "account_id") %>%
   left_join(key_metrics_cleaned, by = "id") %>%
+  left_join(availability_cleaned, by = "id") %>%
   filter(active == "active")
 
 
@@ -391,8 +486,14 @@ geomarket_cleaned_tbl <- prod_listings_joined %>%
     max_base_rate, 
     mean_model_rate, 
     mean_adjusted_rate,
+    adr_7_days,
+    adr_14_days,
     adr_30_days,
-    adr_90_days
+    adr_90_days,
+    booked_7_days_out,
+    booked_14_days_out,
+    booked_30_days_out,
+    booked_90_days_out
   ) %>%
   mutate(
     id = as.integer(id),
@@ -404,8 +505,14 @@ geomarket_cleaned_tbl <- prod_listings_joined %>%
     max_base_rate = as.numeric(max_base_rate),
     mean_model_rate = as.numeric(mean_model_rate),
     mean_adjusted_rate = as.numeric(mean_adjusted_rate),
+    adr_7_days  = as.numeric(adr_7_days),
+    adr_14_days = as.numeric(adr_14_days),
     adr_30_days = as.numeric(adr_30_days),
-    adr_90_days = as.numeric(adr_90_days)
+    adr_90_days = as.numeric(adr_90_days),
+    booked_7_days_out  = as.numeric(booked_7_days_out),
+    booked_14_days_out = as.numeric(booked_14_days_out),
+    booked_30_days_out = as.numeric(booked_30_days_out),
+    booked_90_days_out = as.numeric(booked_90_days_out)
   ) %>%
   distinct(id, .keep_all = T) %>%
   filter(full  != "",
@@ -458,8 +565,14 @@ data_full_cleaned_tbl <- geomarket_cleaned_tbl %>%
     max_base_rate, 
     mean_model_rate, 
     mean_adjusted_rate,
+    adr_7_days,
+    adr_14_days,
     adr_30_days,
     adr_90_days,
+    booked_7_days_out,
+    booked_14_days_out,
+    booked_30_days_out,
+    booked_90_days_out,
     city,
     state,
     zip,
@@ -467,6 +580,7 @@ data_full_cleaned_tbl <- geomarket_cleaned_tbl %>%
     room_type,
     beds,
     full_baths,
+    guests,
     rating,
     reviews,
     latitude,
