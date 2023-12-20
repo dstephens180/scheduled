@@ -6,7 +6,7 @@ library(tidyverse)
 date_time <- blastula::add_readable_time()
 
 
-link_compset_tool <- "https://msv-analytics.shinyapps.io/shiny_kdd_direct_pms_sszqoRMwesSARXErmCyJpKdXmCwIrD7O/"
+link_app <- "https://msv-analytics.shinyapps.io/kpi_metrics_spoq9qi0fLEOwRcYeBDw2ZzftHFKfC8b/"
 
 
 
@@ -19,11 +19,14 @@ rsconnect::setAccountInfo(
 
 # Compset Selection Tool
 rsconnect::deployApp(
-  appDir = "C:\\Users\\DavidStephens\\Desktop\\Github\\market-segmentation",
-  appName = "shiny_kdd_direct_pms_sszqoRMwesSARXErmCyJpKdXmCwIrD7O",
-  appFiles = c('shiny_kdd_direct_pms.Rmd',
-               'www/Rented-logo-small.png'
-
+  appDir = "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny",
+  appName = "kpi_metrics_spoq9qi0fLEOwRcYeBDw2ZzftHFKfC8b",
+  appFiles = c('shiny_kpi_metrics.Rmd',
+               'www/tns-small.png',
+               'config.yml',
+               'art_listing_ids_cleaned.parquet',
+               'kdd_comps_full_geomarket_details_tbl.parquet',
+               '02_geocode/art_listings_geocode_cleaned.rds'
   ),
   server = 'shinyapps.io',
   forceUpdate = T,
@@ -38,9 +41,9 @@ body_text <-
   blastula::md(stringr::str_glue(
     "Good news!
 
-    The **Market Benchmarking App** was successfully deployed on {date_time}.
+    The **KPI Metrics App** was successfully deployed on {date_time}.
 
-    {link_compset_tool}"
+    {link_app}"
   ))
 
 email <- blastula::compose_email(body = body_text)
@@ -52,7 +55,7 @@ email %>%
   blastula::smtp_send(
     from        = "dstephens@tnsinc.com",
     to          = "dstephens@tnsinc.com",
-    subject     = stringr::str_glue("Shiny: Market Benchmarking"),
+    subject     = stringr::str_glue("Shiny: KPI Metrics App"),
     credentials = blastula::creds_file(file = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\gmail_creds"))
 
 

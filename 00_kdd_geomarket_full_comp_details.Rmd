@@ -1,5 +1,5 @@
 ---
-title: "rented_art: Geomarket Full & Comps Details Data Extract"
+title: "KDD rentaldata_dev: Geomarket Full & Comps Details Data Extract"
 ---
 
 
@@ -37,17 +37,11 @@ options(scipen = 9999)
 options(dplyr.summarise.inform = FALSE)
 
 
-DS_HOST    <- Sys.getenv("DS_HOST")
-DS_DB_NAME <- Sys.getenv("DS_DB_NAME")
-SQL_ID     <- Sys.getenv("SQL_ID")
-SQL_PW     <- Sys.getenv("SQL_PW")
-
-
-conn <- dbConnect(RMariaDB::MariaDB(),
-                  host     = DS_HOST,
-                  dbname   = DS_DB_NAME,
-                  username = SQL_ID,
-                  password = SQL_PW)
+ds_conn <- dbConnect(RMariaDB::MariaDB(),
+                  host     = "rented-datascience.ccem57tyvghb.us-west-2.rds.amazonaws.com",
+                  dbname   = "rentaldata_dev",
+                  username = "david",
+                  password = "NZg*2ptvQ@X$uR")
 
 
 knitr::opts_chunk$set(echo = TRUE)
@@ -59,17 +53,45 @@ knitr::opts_chunk$set(echo = TRUE)
 # --
 # 0.0 DATA
 
-## Art Listings
+## KDD Recohort Raw Data
+```{r}
+full_recohort_raw <-
+  read_rds("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\01_healthscore\\full_kdd_recohort.rds") %>%
+  distinct(id, .keep_all = T)
+```
+
+
+
+
+# --
+# 0.1 IMPORT ART DATA
 ```{r}
 geomarket_cleaned_tbl <-
-  read_rds("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\geomarket_cleaned_tbl.rds")
+  read_rds("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\geomarket_cleaned_tbl.rds") %>%
+  select(
+    -full,
+    -comps,
+    -starts_with("adr"), 
+    -starts_with("booked")
+  )
 
 
 # all art id's with account_id assignment
-accounts_listings_raw <- geomarket_cleaned_tbl %>% 
+accounts_listings_raw <- 
+  geomarket_cleaned_tbl %>% 
   select(account_id, id) %>%
   distinct(id, .keep_all = T)
+```
 
+
+
+
+# --
+# 0.2 JOIN ART DATA WITH KDD RECOHORTED FULL/COMPS
+```{r}
+geomarket_recohorted_cleaned_tbl <- 
+  geomarket_cleaned_tbl %>%
+  left_join(full_recohort_raw, by = "id")
 ```
 
 
@@ -80,7 +102,8 @@ accounts_listings_raw <- geomarket_cleaned_tbl %>%
 
 ## Prepare Data for Joining after Loop
 ```{r}
-art_listing_full_comps_tbl <- geomarket_cleaned_tbl %>%
+art_listing_full_comps_tbl <- 
+  geomarket_recohorted_cleaned_tbl %>%
   select(id, full, comps) %>%
   rowid_to_column(var = "rowid_column")
 
@@ -89,37 +112,21 @@ art_listing_full_comps_tbl <- geomarket_cleaned_tbl %>%
 
 ```{r}
 # full data only 
-full_extract_tbl <- str_split_fixed(art_listing_full_comps_tbl$full, ", ", n = 3000) %>% 
-  as_tibble() %>%
-  bind_cols(art_listing_full_comps_tbl) %>%
-  relocate(rowid_column, id) %>%
-  select(-full, -comps)
-
-
-full_extract_longer <- full_extract_tbl %>%
-  pivot_longer(cols = starts_with("V"), values_drop_na = T) %>%
-  filter(value != "") %>%
-  select(-name) %>%
-  rename(listing_id = value) %>%
+full_extract_longer <- 
+  art_listing_full_comps_tbl %>%
+  select(-comps) %>%
+  unnest(full) %>%
+  rename(listing_id = full) %>%
   mutate(type = "full")
 
 
 
-
-
 # comps data only 
-comps_extract_tbl <- str_split_fixed(art_listing_full_comps_tbl$comps, ", ", n = 3000) %>% 
-  as_tibble() %>%
-  bind_cols(art_listing_full_comps_tbl) %>%
-  relocate(rowid_column, id) %>%
-  select(-full, -comps)
-
-
-comps_extract_longer <- comps_extract_tbl %>%
-  pivot_longer(cols = starts_with("V"), values_drop_na = T) %>%
-  filter(value != "") %>%
-  select(-name) %>%
-  rename(listing_id = value) %>%
+comps_extract_longer <- 
+  art_listing_full_comps_tbl %>%
+  select(-full) %>%
+  unnest(comps) %>%
+  rename(listing_id = comps) %>%
   mutate(type = "comps")
 
 
@@ -152,9 +159,9 @@ sample_unique_ids_vector <- unique_listing_ids_vector[1:5]
 ## Filter/Join SQL Tables & Extract Data
 **Long-running script**
 ```{r}
-calendar <- tbl(conn, "combined_calendar")
-active_listings <- tbl(conn, "combined_active")
-location_listings <- tbl(conn, "combined_listings")
+calendar <- tbl(ds_conn, "combined_calendar")
+active_listings <- tbl(ds_conn, "combined_active")
+location_listings <- tbl(ds_conn, "combined_listings")
 
 
 
@@ -249,15 +256,15 @@ geomarket_full_comps_details_tbl <- full_comps_extract_longer %>%
 ## Save as parquet
 ```{r}
 # live file in scheduled/00_data folder
-write_parquet(geomarket_full_comps_details_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\comps_full_geomarket_details_tbl.parquet")
+write_parquet(geomarket_full_comps_details_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\kdd_comps_full_geomarket_details_tbl.parquet")
 
 
 # live file for shiny in art_replica/shiny folder
-write_parquet(geomarket_full_comps_details_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\comps_full_geomarket_details_tbl.parquet")
+write_parquet(geomarket_full_comps_details_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\kdd_comps_full_geomarket_details_tbl.parquet")
 
 
 # time-stamped archive file
-write_parquet(geomarket_full_comps_details_tbl, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\archive\\{date}_comps_full_geomarket_details_tbl.parquet"))
+write_parquet(geomarket_full_comps_details_tbl, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\archive\\{date}_kdd_comps_full_geomarket_details_tbl.parquet"))
 ```
 
 
@@ -266,7 +273,7 @@ write_parquet(geomarket_full_comps_details_tbl, str_glue("C:\\Users\\DavidStephe
 
 ## Disconnect SQL
 ```{r}
-dbDisconnect(conn)
+dbDisconnect(ds_conn)
 ```
 
 
@@ -284,7 +291,7 @@ body_text <-
 "
 Good news!
 
-The **rented_art: Geomarket Full & Comps Details Data Extract** script ran successfully on {date_time}.
+The **KDD Geomarket Full & Comps Details Data Extract** script ran successfully on {date_time}.
 
 "))
 
@@ -304,7 +311,7 @@ email %>%
   smtp_send(
     from = "dstephens@tnsinc.com",
     to = "dstephens@tnsinc.com", 
-    subject = str_glue("Geomarket Full & Comps Details"),
+    subject = str_glue("KDD Geomarket Full & Comps Details"),
     credentials = creds_file(file = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\gmail_creds")
   )
 ```

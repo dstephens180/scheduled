@@ -13,7 +13,7 @@ blastula::create_smtp_creds_key(
 
 
 # Go to https://myaccount.google.com/security, type "app passwords" in the search and click the first selection.
-# Mail >> Windows (Computer)
+# Name it whatever you want (ex. R mail creds)
 # copy the new password string
 # run code below
 # paste into the password request here in R.

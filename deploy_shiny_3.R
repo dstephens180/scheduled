@@ -22,13 +22,10 @@ rsconnect::deployApp(
   appDir = "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny",
   appName = "shiny_model_focus_5vrvyRo5mARtetyCGWdFkcKCUzxB2Yde",
   appFiles = c('shiny_model_focus.Rmd',
-               'www/Rented-logo-small.png',
+               'www/tns-small.png',
                'config.yml',
                'art_listing_ids_cleaned.parquet',
-               'comps_full_geomarket_details_tbl.parquet',
-               'art_listings_bookings.parquet',
-               # 'event_data.rds',
-               'booked_days_out.rds'
+               'kdd_comps_full_geomarket_details_tbl.parquet'
                ),
   server = 'shinyapps.io',
   forceUpdate = T,
@@ -44,7 +41,7 @@ body_text <-
   blastula::md(stringr::str_glue(
     "Good news!
 
-    The **Shiny Model Focus App** was successfully deployed on {date_time}.
+    The **Model Focus App** was successfully deployed on {date_time}.
 
     {link_model_focus}"
   ))
