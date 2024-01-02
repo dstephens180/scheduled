@@ -169,8 +169,6 @@ bookings_full_tbl <- bookings_time_series_dtplyr_tbl %>%
 ```
 
 
-
-
 ## Filter by Time
 ```{r}
 # max dates for calculation 
@@ -222,9 +220,48 @@ booked_all_days_out <- bookings_filter_by_time %>%
 
 
 # --
-# 3.0 SAVE & DISCONNECT
+# 5.0 SAVE bookings_prepared WITH DATES
 
-## Save bookings_prepared with dates
+## Save to db
+```{r}
+ds_conn <- 
+  DBI::dbConnect(
+    RMariaDB::MariaDB(),
+    host     = "rented-datascience.ccem57tyvghb.us-west-2.rds.amazonaws.com",
+    dbname   = "rentaldata_dev",
+    username = "david",
+    password = "NZg*2ptvQ@X$uR"
+  )
+
+
+## handy little function
+dbWriteTableMySQLFast<- function(conn, df, tbl_name) {
+  dbRemoveTable(conn, tbl_name, fail_if_missing = FALSE)
+  dbCreateTable(conn, tbl_name, fields = df)
+  
+  f <- tempfile()
+  write_csv(df, file = f, na = "NULL")
+  
+  dbWriteTable(conn, tbl_name, f, append = TRUE)
+
+  unlink(f)
+}
+
+
+# upload
+dbWriteTableMySQLFast(
+  conn     = ds_conn, 
+  df       = bookings_prepared_dtplyr_tbl, 
+  tbl_name = "00_art_listings_bookings"
+)
+
+
+# disconnect
+dbDisconnect(ds_conn)
+```
+
+
+## Save as parquet
 ```{r}
 # live file in scheduled/00_data folder
 write_parquet(bookings_prepared_dtplyr_tbl, "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\art_listings_bookings.parquet")
@@ -240,7 +277,51 @@ write_parquet(bookings_prepared_dtplyr_tbl, str_glue("C:\\Users\\DavidStephens\\
 ```
 
 
-## Save booked_all_days_out summarized by listing_id
+
+
+# --
+# 6.0 SAVE booked_all_days_out SUMMARIZED BY listing_id
+
+## Save to db
+```{r}
+ds_conn <- 
+  DBI::dbConnect(
+    RMariaDB::MariaDB(),
+    host     = "rented-datascience.ccem57tyvghb.us-west-2.rds.amazonaws.com",
+    dbname   = "rentaldata_dev",
+    username = "david",
+    password = "NZg*2ptvQ@X$uR"
+  )
+
+
+## handy little function
+dbWriteTableMySQLFast<- function(conn, df, tbl_name) {
+  dbRemoveTable(conn, tbl_name, fail_if_missing = FALSE)
+  dbCreateTable(conn, tbl_name, fields = df)
+  
+  f <- tempfile()
+  write_csv(df, file = f, na = "NULL")
+  
+  dbWriteTable(conn, tbl_name, f, append = TRUE)
+
+  unlink(f)
+}
+
+
+# upload
+dbWriteTableMySQLFast(
+  conn     = ds_conn, 
+  df       = booked_all_days_out, 
+  tbl_name = "00_booked_days_out"
+)
+
+
+# disconnect
+dbDisconnect(ds_conn)
+```
+
+
+## Save 
 ```{r}
 # live file in scheduled/00_data folder
 write_rds(booked_all_days_out, "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\booked_days_out.rds")
@@ -265,7 +346,7 @@ dbDisconnect(prod_conn)
 
 
 # --
-# 3.0 EMAIL NOTIFICATION
+# 7.0 EMAIL NOTIFICATION
 ```{r}
 
 date_time <- add_readable_time()

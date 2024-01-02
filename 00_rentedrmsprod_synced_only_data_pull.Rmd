@@ -606,6 +606,46 @@ data_full_cleaned_tbl %>% glimpse()
 
 
 # 3.0 SAVE & DISCONNECT
+
+## Save to db
+```{r}
+ds_conn <- 
+  DBI::dbConnect(
+    RMariaDB::MariaDB(),
+    host     = "rented-datascience.ccem57tyvghb.us-west-2.rds.amazonaws.com",
+    dbname   = "rentaldata_dev",
+    username = "david",
+    password = "NZg*2ptvQ@X$uR")
+
+
+
+## handy little function
+dbWriteTableMySQLFast<- function(conn, df, tbl_name) {
+  dbRemoveTable(conn, tbl_name, fail_if_missing = FALSE)
+  dbCreateTable(conn, tbl_name, fields = df)
+  
+  f <- tempfile()
+  write_csv(df, file = f, na = "NULL")
+  
+  dbWriteTable(conn, tbl_name, f, append = TRUE)
+
+  unlink(f)
+}
+
+
+# upload
+dbWriteTableMySQLFast(
+  conn     = ds_conn, 
+  df       = data_full_cleaned_tbl, 
+  tbl_name = "00_art_listing_ids_cleaned")
+
+
+
+# disconnect
+dbDisconnect(ds_conn)
+```
+
+
 ## Save as parquet
 ```{r}
 # live file in scheduled/00_data folder

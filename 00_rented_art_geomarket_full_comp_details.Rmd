@@ -246,6 +246,42 @@ geomarket_full_comps_details_tbl <- full_comps_extract_longer %>%
 # --
 # 3.0 SAVE & DISCONNECT
 
+```{r}
+
+# connect & upload
+ds_conn <- 
+  DBI::dbConnect(
+    RMariaDB::MariaDB(),
+    host     = "rented-datascience.ccem57tyvghb.us-west-2.rds.amazonaws.com",
+    dbname   = "rentaldata_dev",
+    username = "david",
+    password = "NZg*2ptvQ@X$uR"
+  )
+
+
+## handy-dandy function
+dbWriteTableMySQLFast<- function(conn, df, tbl_name) {
+  dbRemoveTable(conn, tbl_name, fail_if_missing = FALSE)
+  dbCreateTable(conn, tbl_name, fields = df)
+  
+  f <- tempfile()
+  write_csv(df, file = f, na = "NULL")
+  
+  dbWriteTable(conn, tbl_name, f, append = TRUE)
+
+  unlink(f)
+}
+
+
+# upload
+dbWriteTableMySQLFast(
+  conn     = ds_conn, 
+  df       = geomarket_full_comps_details_tbl, 
+  tbl_name = "00_comps_full_geomarket_details_tbl"
+)
+```
+
+
 ## Save as parquet
 ```{r}
 # live file in scheduled/00_data folder
