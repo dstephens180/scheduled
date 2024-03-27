@@ -41,8 +41,6 @@ rmarkdown::render(
 
 
 
-
-
 ### KDD DEV PROCESS ###
 # KDD Recohorting all new Art Listings (must go before 00_kdd_geomarket_full_comp_details below)
 Sys.setenv(RSTUDIO_PANDOC = "C:\\Program Files\\Pandoc")
@@ -60,3 +58,5 @@ rmarkdown::render(
   output_file = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_kdd_geomarket_full_comp_details.html",
   output_dir  = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_archive"
 )
+
+

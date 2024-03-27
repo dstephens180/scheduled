@@ -22,9 +22,10 @@ rsconnect::deployApp(
   appDir = "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny",
   appName = "shiny_model_focus_5vrvyRo5mARtetyCGWdFkcKCUzxB2Yde",
   appFiles = c('shiny_model_focus.Rmd',
+               'R/ds1_all_functions_v_1_7.R',
+               'R/ds1_all_functions_v_1_8.R',
                'www/tns-small.png',
                'config.yml',
-               'art_listing_ids_cleaned.parquet',
                'kdd_comps_full_geomarket_details_tbl.parquet'
                ),
   server = 'shinyapps.io',

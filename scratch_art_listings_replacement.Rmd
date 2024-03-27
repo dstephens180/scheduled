@@ -32,23 +32,31 @@ date <- today()
 options(scipen = 9999)
 
 
-PROD_HOST    <- Sys.getenv("PROD_HOST")
-PROD_DB_NAME <- Sys.getenv("PROD_DB_NAME")
-PROD_ID      <- Sys.getenv("PROD_ID")
-PROD_PW      <- Sys.getenv("PROD_PW")
+config <- config::get()
 
-prod_conn <- dbConnect(RMariaDB::MariaDB(),
-                        host     = PROD_HOST,
-                        dbname   = PROD_DB_NAME,
-                        username = PROD_ID,
-                        password = PROD_PW)
+conn <- 
+  dbConnect(
+    RMariaDB::MariaDB(),
+    host     = config$conn$host,
+    dbname   = config$conn$dbname,
+    username = config$conn$uid,
+    password = config$conn$pwd)
 
+ds_conn <- 
+  dbConnect(
+    RMariaDB::MariaDB(),
+    host     = config$ds_conn$host,
+    dbname   = config$ds_conn$dbname,
+    username = config$ds_conn$uid,
+    password = config$ds_conn$pwd)
 
-conn <- dbConnect(RMariaDB::MariaDB(),
-                  host     = "rented-datascience.ccem57tyvghb.us-west-2.rds.amazonaws.com",
-                  dbname   = "rented_art",
-                  username = "david",
-                  password = "NZg*2ptvQ@X$uR")
+prod_conn <-
+  dbConnect(
+    RMariaDB::MariaDB(),
+    host     = config$prod_conn$host,
+    dbname   = config$prod_conn$dbname,
+    username = config$prod_conn$uid,
+    password = config$prod_conn$pwd)
 
 ```
 

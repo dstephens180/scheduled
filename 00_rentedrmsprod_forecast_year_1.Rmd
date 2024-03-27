@@ -70,30 +70,25 @@ end_date_forecast <- as.Date(today() + 365)
 horizon <- interval(end_date, end_date_forecast) %/% days(1)
 
 
+config_path <- Sys.getenv("CONFIG_PATH")
+config <- config::get(file = config_path)
 
-DS_HOST    <- Sys.getenv("DS_HOST")
-DS_DB_NAME <- Sys.getenv("DS_DB_NAME")
-SQL_ID     <- Sys.getenv("SQL_ID")
-SQL_PW     <- Sys.getenv("SQL_PW")
-
-conn <- dbConnect(RMariaDB::MariaDB(),
-                  host     = DS_HOST,
-                  dbname   = DS_DB_NAME,
-                  username = SQL_ID,
-                  password = SQL_PW)
-
+conn <- 
+  dbConnect(
+    RMariaDB::MariaDB(),
+    host     = config$conn$host,
+    dbname   = config$conn$dbname,
+    username = config$conn$uid,
+    password = config$conn$pwd)
 
 
-PROD_HOST    <- Sys.getenv("PROD_HOST")
-PROD_DB_NAME <- Sys.getenv("PROD_DB_NAME")
-PROD_ID      <- Sys.getenv("PROD_ID")
-PROD_PW      <- Sys.getenv("PROD_PW")
-
-prod_conn <- dbConnect(RMariaDB::MariaDB(),
-                        host     = PROD_HOST,
-                        dbname   = PROD_DB_NAME,
-                        username = PROD_ID,
-                        password = PROD_PW)
+prod_conn <-
+  dbConnect(
+    RMariaDB::MariaDB(),
+    host     = config$prod_conn$host,
+    dbname   = config$prod_conn$dbname,
+    username = config$prod_conn$uid,
+    password = config$prod_conn$pwd)
 
 knitr::opts_chunk$set(echo = TRUE)
 ```

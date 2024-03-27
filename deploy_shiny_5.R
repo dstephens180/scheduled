@@ -22,7 +22,8 @@ rsconnect::deployApp(
   appDir = "C:\\Users\\DavidStephens\\Desktop\\Github\\market-segmentation",
   appName = "shiny_kdd_direct_pms_sszqoRMwesSARXErmCyJpKdXmCwIrD7O",
   appFiles = c('shiny_kdd_direct_pms.Rmd',
-               'www/Rented-logo-small.png'
+               'www/tns-small.png',
+               'config.yml'
 
   ),
   server = 'shinyapps.io',

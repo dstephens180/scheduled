@@ -59,16 +59,17 @@ source("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\R\\ds1_n
 source("C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny\\R\\ds1_calendar_functions.R")
 
 
-DS_HOST    <- Sys.getenv("DS_HOST")
-DS_DB_NAME <- Sys.getenv("DS_DB_NAME")
-SQL_ID     <- Sys.getenv("SQL_ID")
-SQL_PW     <- Sys.getenv("SQL_PW")
+config_path <- Sys.getenv("CONFIG_PATH")
+config <- config::get(file = config_path)
 
-conn <- dbConnect(RMariaDB::MariaDB(),
-                  host     = DS_HOST,
-                  dbname   = DS_DB_NAME,
-                  username = SQL_ID,
-                  password = SQL_PW)
+conn <- 
+  dbConnect(
+    RMariaDB::MariaDB(),
+    host     = config$conn$host,
+    dbname   = config$conn$dbname,
+    username = config$conn$uid,
+    password = config$conn$pwd)
+
 
 
 

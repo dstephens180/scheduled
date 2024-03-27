@@ -1,0 +1,477 @@
+---
+title: "rentedrmsprod: Synced Listings Only"
+---
+
+
+# LIBRARIES
+```{r setup, include=FALSE}
+
+# sql connect
+library(odbc)
+library(DBI)
+library(arrow)
+
+# core packages
+library(tidyverse)
+library(dbplyr)
+library(timetk)
+library(tidyquant)
+library(janitor)
+library(lubridate)
+library(stringi)
+library(jsonlite)
+library(tidyjson)
+library(data.table)
+
+library(blastula)
+
+
+
+date <- today()
+options(scipen = 9999)
+
+beginning_url <- '<img src="'
+ending_url    <- '" height="70"></img>'
+
+
+PROD_HOST    <- Sys.getenv("PROD_HOST")
+PROD_DB_NAME <- Sys.getenv("PROD_DB_NAME")
+PROD_ID      <- Sys.getenv("PROD_ID")
+PROD_PW      <- Sys.getenv("PROD_PW")
+
+prod_conn <- dbConnect(RMariaDB::MariaDB(),
+                        host     = PROD_HOST,
+                        dbname   = PROD_DB_NAME,
+                        username = PROD_ID,
+                        password = PROD_PW)
+
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+
+
+
+# --
+# 0.0 DATA IMPORT
+```{r}
+art_listings_raw <- 
+  read_parquet("../artr_replica/shiny/art_listing_ids_cleaned.parquet")
+
+
+
+full_service_accounts <- 
+  art_listings_raw %>% 
+  select(account_name, full_service) %>%
+  distinct(account_name, .keep_all = T)
+```
+
+
+
+
+# --
+# 1.0 SQL EXTRACTS
+## pull art_listings: overrides
+```{sql connection=prod_conn, output.var="prod_art_listings"}
+select cast(id as CHAR), cast(overrides as CHAR), cast(groups_id as CHAR)
+from art_listings
+where sync = 1
+```
+
+
+## pull art_listings: groups
+```{sql connection=prod_conn, output.var="prod_art_groups"}
+select cast(id as CHAR), cast(overrides as CHAR), cast(accounts_id as CHAR)
+from art_groups
+```
+
+
+## select, non-synced accounts
+```{sql connection=prod_conn, output.var="prod_art_select_listings"}
+select cast(id as CHAR), cast(overrides as CHAR)
+from art_listings
+where (
+accounts_id = 1320 OR
+accounts_id = 1363 OR
+accounts_id = 1365 OR
+accounts_id = 1380 OR
+accounts_id = 1386 OR
+accounts_id = 1390 OR
+accounts_id = 1391 OR
+accounts_id = 1392 OR
+accounts_id = 1405 OR
+accounts_id = 1413 OR
+accounts_id = 1414 OR
+accounts_id = 1416)
+
+```
+
+
+
+
+# --
+# 2.0 PREPARE DATA
+
+## Unnest rates
+```{r}
+
+prod_art_rates_unnested <- prod_art_listings %>%
+  bind_rows(prod_art_select_listings) %>%
+  rename(
+    id        = `cast(id as CHAR)`,
+    groups_id = `cast(groups_id as CHAR)`,
+    overrides = `cast(overrides as CHAR)`
+  ) %>%
+  select(id, groups_id, overrides) %>%
+  rowid_to_column(var = "rowid_column")
+
+
+
+
+prod_art_rates_vector <- as.vector(prod_art_rates_unnested %>% pull(rowid_column))
+
+
+
+### FOR LOOP ###
+# create empty vector
+key_metrics_data = c()
+
+
+for (i in prod_art_rates_vector) {
+  
+  tryCatch({
+  
+  selected_column <- i
+  
+  overrides <- 
+    as.vector(
+      prod_art_rates_unnested %>%
+        dplyr::filter(rowid_column == selected_column) %>%
+        dplyr::pull(overrides) %>%
+        jsonlite::fromJSON()) %>%
+    tidyjson::spread_values(percent = tidyjson::jnumber(percent))
+  
+  
+  # extract dates
+  overrides_dates <-
+    names(overrides$..JSON) %>% 
+    as_tibble() %>% 
+    rename(date = value) %>%
+    mutate(date = as.Date(date))
+  
+
+  # Extracting the dates
+  overrides$type <- sapply(overrides$..JSON, function(x) {
+    # Get the names of the first element in the list
+    # which should be the date
+    list_names <- names(x)
+    return(list_names[1]) # Assuming the date is the first name
+  })
+  
+  combined_tbl <- 
+    overrides_dates %>%
+    bind_cols(overrides) %>%
+    unnest(type) %>%
+    unnest(..JSON) %>%
+    unnest(..JSON) %>%
+    mutate(rowid_column = selected_column) %>%
+    select(-..JSON) %>%
+    as_tibble() %>%
+    filter(date >= today())
+  
+  
+  # bind rows of all_container_data
+  key_metrics_data <- bind_rows(key_metrics_data, combined_tbl)
+  
+  }, error=function(e){})
+  
+}
+
+
+
+# join with id's
+key_metrics_cleaned <-
+  key_metrics_data %>%
+  left_join(
+    prod_art_rates_unnested %>%
+      select(
+        rowid_column, 
+        id
+      ), 
+    by = "rowid_column"
+  ) %>%
+  select(-rowid_column) %>%
+  relocate(id)
+```
+
+
+## Unnest group rates
+```{r}
+prod_group_rates_unnested <- prod_art_groups %>%
+  rename(
+    account_id = `cast(accounts_id as CHAR)`,
+    groups_id  = `cast(id as CHAR)`,
+    overrides  = `cast(overrides as CHAR)`
+  ) %>%
+  select(account_id, groups_id, overrides) %>%
+  rowid_to_column(var = "rowid_column")
+
+
+
+
+prod_art_group_rates_vector <- as.vector(prod_group_rates_unnested %>% pull(rowid_column))
+
+
+
+### FOR LOOP ###
+# create empty vector
+group_data = c()
+
+
+for (i in prod_art_group_rates_vector) {
+  
+  tryCatch({
+  
+  selected_column <- i
+  
+  group_overrides <- 
+    as.vector(
+      prod_group_rates_unnested %>%
+        dplyr::filter(rowid_column == selected_column) %>%
+        dplyr::pull(overrides) %>%
+        jsonlite::fromJSON()) %>%
+    tidyjson::spread_values(group_percent = tidyjson::jnumber(group_percent))
+  
+  
+  # extract dates
+  group_overrides_dates <-
+    names(group_overrides$..JSON) %>% 
+    as_tibble() %>% 
+    rename(date = value) %>%
+    mutate(date = as.Date(date))
+  
+
+  # Extracting the dates
+  group_overrides$type <- sapply(group_overrides$..JSON, function(x) {
+    # Get the names of the first element in the list
+    # which should be the date
+    list_names <- names(x)
+    return(list_names[1]) # Assuming the date is the first name
+  })
+  
+  combined_tbl <- 
+    group_overrides_dates %>%
+    bind_cols(group_overrides) %>%
+    unnest(type) %>%
+    unnest(..JSON) %>%
+    unnest(..JSON) %>%
+    mutate(rowid_column = selected_column) %>%
+    select(-..JSON) %>%
+    as_tibble() %>%
+    filter(date >= today())
+  
+  
+  # bind rows of all_container_data
+  group_data <- bind_rows(group_data, combined_tbl)
+  
+  }, error=function(e){})
+  
+}
+
+
+
+# join with id's
+group_data_cleaned <- 
+  group_data %>%
+  left_join(
+    prod_group_rates_unnested %>% 
+      select(
+        rowid_column, 
+        groups_id
+      ), 
+    by = "rowid_column"
+  ) %>%
+  select(-rowid_column) %>%
+  relocate(groups_id)
+```
+
+
+
+# --
+# 2.1 SAVE & READ FILES
+
+## Save
+```{r}
+write_rds(key_metrics_cleaned, "01_auto_adjust_override_analysis/2024-02-07_listing_rates.rds")
+write_rds(group_data_cleaned, "01_auto_adjust_override_analysis/2024-02-07_group_rates.rds")
+write_rds(prod_art_rates_unnested, "01_auto_adjust_override_analysis/2024-02-07_prod_art_rates_unnested.rds")
+```
+
+
+## Read
+```{r}
+key_metrics_cleaned <- read_rds("01_auto_adjust_override_analysis/2024-02-07_listing_rates.rds")
+group_data_cleaned <- read_rds("01_auto_adjust_override_analysis/2024-02-07_group_rates.rds")
+prod_art_rates_unnested <- read_rds("01_auto_adjust_override_analysis/2024-02-07_prod_art_rates_unnested.rds")
+```
+
+
+
+
+# --
+# 3.0 AGGREGATE
+
+## Prepare data for joining
+```{r}
+art_listings_reduced <- 
+  art_listings_raw %>% 
+  select(id, listing_name, account_name, account_id) %>%
+  mutate(id = as.character(id))
+
+
+listings_groups_tbl <- 
+  prod_art_rates_unnested %>%
+  select(id, groups_id) %>%
+  distinct(id, .keep_all = T) %>%
+  drop_na()
+```
+
+
+## Group Level
+```{r}
+group_level_tbl <- 
+  group_data_cleaned %>%
+  filter(type == "group_percent") %>%
+  group_by(groups_id) %>%
+  summarize(count_groups = n()) %>%
+  ungroup()
+```
+
+
+## Listing Level
+```{r}
+listing_level_tbl <- 
+  key_metrics_cleaned %>%
+  filter(type == "percent") %>%
+  group_by(id) %>%
+  summarize(count_listings = n()) %>%
+  ungroup()
+```
+
+
+## Group Level
+```{r}
+listing_group_level_tbl <- 
+  listing_level_tbl %>%
+  left_join(art_listings_reduced, by = "id") %>%
+  left_join(listings_groups_tbl, by = "id") %>%
+  left_join(group_level_tbl, by = "groups_id") %>%
+  mutate(count_groups = replace_na(count_groups, 0)) %>%
+  mutate(count = count_listings + count_groups) %>%
+  select(-count_listings, -count_groups)
+```
+
+
+## Fully summarized listing+group level
+```{r}
+full_data_tbl <- 
+  listing_group_level_tbl %>%
+  group_by(id) %>%
+  summarize(
+    count = count,
+    total_possible_days = 730,
+    full_2_years = count/total_possible_days
+  ) %>% 
+  ungroup() %>%
+  left_join(art_listings_reduced, by = "id")
+```
+
+
+## Account Level
+```{r}
+account_level_tbl <- 
+  full_data_tbl %>%
+  group_by(account_name) %>%
+  summarize(
+    count_listings = n(),
+    num_of_days_w_overrides = sum(count, na.rm = T),
+    total_possible_days = sum(total_possible_days, na.rm = T),
+    total_pct_overrides = num_of_days_w_overrides/total_possible_days,
+    pct_override = scales::percent(total_pct_overrides)
+  ) %>%
+  arrange(desc(total_pct_overrides)) %>%
+  select(-total_pct_overrides)
+
+
+account_level_tbl
+```
+
+
+## Full-Service vs. Art-Only
+```{r}
+account_level_tbl %>%
+  left_join(full_service_accounts, by = "account_name") %>%
+  group_by(full_service) %>%
+  summarize(
+    count_listings = sum(count_listings, na.rm = T),
+    num_of_days_w_overrides = sum(num_of_days_w_overrides, na.rm = T),
+    total_possible_days = sum(total_possible_days, na.rm = T),
+    total_pct_overrides = scales::percent(num_of_days_w_overrides/total_possible_days)
+  )
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

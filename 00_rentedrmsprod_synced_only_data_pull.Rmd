@@ -33,17 +33,16 @@ options(scipen = 9999)
 beginning_url <- '<img src="'
 ending_url    <- '" height="70"></img>'
 
+config_path <- Sys.getenv("CONFIG_PATH")
+config <- config::get(file = config_path)
 
-PROD_HOST    <- Sys.getenv("PROD_HOST")
-PROD_DB_NAME <- Sys.getenv("PROD_DB_NAME")
-PROD_ID      <- Sys.getenv("PROD_ID")
-PROD_PW      <- Sys.getenv("PROD_PW")
-
-prod_conn <- dbConnect(RMariaDB::MariaDB(),
-                        host     = PROD_HOST,
-                        dbname   = PROD_DB_NAME,
-                        username = PROD_ID,
-                        password = PROD_PW)
+prod_conn <-
+  dbConnect(
+    RMariaDB::MariaDB(),
+    host     = config$prod_conn$host,
+    dbname   = config$prod_conn$dbname,
+    username = config$prod_conn$uid,
+    password = config$prod_conn$pwd)
 
 knitr::opts_chunk$set(echo = TRUE)
 
@@ -56,28 +55,8 @@ knitr::opts_chunk$set(echo = TRUE)
 # 0.0 DATA IMPORT
 ## Create vector of all full-service clients
 ```{r}
-full_service <- c("Arizona Elite Properties", 
-                  "Bear Lake Luxury", 
-                  "BookStayHop LLC", 
-                  "Carolina Stays, Inc", 
-                  "Clemson Vacation Rentals",
-                  "Crown Point - Exclusive Island Rentals",
-                  "Fran Maxon Real Estate", 
-                  "Good Life Vacations", 
-                  "Gulf Coast Beachfronts",
-                  "Hodnett Cooper", 
-                  "Marina Hawaii",
-                  "New Wave Vacation Rentals", 
-                  "Premium Beach Condos",
-                  "ResorticaHawaii.com",
-                  "Santa Barbara Vacation Rentals",
-                  "Sloane Realty Vacations",
-                  "South Key Management Co.",
-                  "Stellar Beach Rentals", 
-                  "Vacation Management Solutions LLC", 
-                  "Vacation Rentals Park City", 
-                  "VB Homes (CEBT Properties, LLC)"
-                  )
+full_service <- 
+  c(1458, 57, 696, 1339, 1311, 361, 1373, 1350, 19, 1257, 1348, 1019, 126, 1357, 1358, 1459, 886, 1470, 1466, 867, 1419, 1359, 1401)
 ```
 
 
@@ -396,7 +375,7 @@ for (i in prod_art_availability_vector) {
       booked_30_days_out = ifelse(booked_30_days_out == "", NA, as.numeric(booked_30_days_out)),
       booked_90_days_out = ifelse(booked_90_days_out == "", NA, as.numeric(booked_90_days_out))
     )
-    
+  
   
   
   # bind rows of all_container_data
@@ -432,7 +411,7 @@ prod_art_listings_cleaned <- prod_art_listings %>%
 
 # both deactivation_reason/date should be NA/NULL values to be truly activated
 prod_art_accounts_cleaned <- prod_art_accounts %>%
-  mutate(full_service = ifelse(account_name %in% full_service, "full-service", "art-only")) %>%
+  mutate(full_service = ifelse(id %in% full_service, "full-service", "art-only")) %>%
   filter(is.na(deactivation_date) & is.na(deactivation_reason)) %>%
   mutate(
     account_id = as.character(id),
@@ -530,7 +509,6 @@ geomarket_cleaned_tbl <- read_rds("00_data/geomarket_cleaned_tbl.rds")
 ```
 
 
-
 ## Join and finalize
 ```{r}
 data_full_cleaned_tbl <- geomarket_cleaned_tbl %>%
@@ -598,26 +576,43 @@ data_full_cleaned_tbl %>% glimpse()
 ```
 
 
+## Create Art Listings+Accounts Only
+```{r}
+accounts_and_listings_tbl <- 
+  data_full_cleaned_tbl %>%
+  select(
+    account_id, 
+    account_name,
+    id, 
+    listing_name, 
+    mean_adjusted_rate,
+    beds, 
+    full_baths,
+    latitude, 
+    longitude, 
+    thumbnail
+  ) %>%
+  distinct(id, .keep_all = T)
+```
 
 
 
 
-
-
-
-# 3.0 SAVE & DISCONNECT
+# --
+# 3.0 SAVE
 
 ## Save to db
 ```{r}
 ds_conn <- 
-  DBI::dbConnect(
+  dbConnect(
     RMariaDB::MariaDB(),
-    host     = "rented-datascience.ccem57tyvghb.us-west-2.rds.amazonaws.com",
-    dbname   = "rentaldata_dev",
-    username = "david",
-    password = "NZg*2ptvQ@X$uR")
+    host     = config$ds_conn$host,
+    dbname   = config$ds_conn$dbname,
+    username = config$ds_conn$uid,
+    password = config$ds_conn$pwd)
 
 
+  
 
 ## handy little function
 dbWriteTableMySQLFast<- function(conn, df, tbl_name) {
@@ -633,6 +628,7 @@ dbWriteTableMySQLFast<- function(conn, df, tbl_name) {
 }
 
 
+
 # upload
 dbWriteTableMySQLFast(
   conn     = ds_conn, 
@@ -640,10 +636,21 @@ dbWriteTableMySQLFast(
   tbl_name = "00_art_listing_ids_cleaned")
 
 
+dbWriteTableMySQLFast(
+  conn     = ds_conn, 
+  df       = accounts_and_listings_tbl, 
+  tbl_name = "00_art_accounts_and_listings")
 
-# disconnect
-dbDisconnect(ds_conn)
 ```
+
+
+```{r}
+DBI::dbDisconnect(prod_conn)
+DBI::dbDisconnect(ds_conn)
+```
+
+
+
 
 
 ## Save as parquet
@@ -673,14 +680,9 @@ write_parquet(data_full_cleaned_tbl, str_glue("C:\\Users\\DavidStephens\\Desktop
 ```
 
 
-## Disconnect SQL
-```{r}
-dbDisconnect(prod_conn)
-```
 
 
-
-
+# --
 # 4.0 EMAIL NOTIFICATION
 ```{r}
 

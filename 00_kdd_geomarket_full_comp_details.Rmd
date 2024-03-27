@@ -36,14 +36,18 @@ today_90 <- as.Date(today()+90)
 options(scipen = 9999)
 options(dplyr.summarise.inform = FALSE)
 
+config_path <- Sys.getenv("CONFIG_PATH")
+config <- config::get(file = config_path)
+
 
 ds_conn <- 
   dbConnect(
     RMariaDB::MariaDB(),
-    host     = "rented-datascience.ccem57tyvghb.us-west-2.rds.amazonaws.com",
-    dbname   = "rentaldata_dev",
-    username = "david",
-    password = "NZg*2ptvQ@X$uR")
+    host     = config$ds_conn$host,
+    dbname   = config$ds_conn$dbname,
+    username = config$ds_conn$uid,
+    password = config$ds_conn$pwd)
+
 
 
 knitr::opts_chunk$set(echo = TRUE)
@@ -100,6 +104,36 @@ geomarket_recohorted_cleaned_tbl <-
 
 
 # --
+# 0.3 SANITY CHECK RANDOM LISTINGS
+```{r,eval=FALSE}
+combined_listings <- tbl(ds_conn, "combined_listings")
+listing_filter <- (full_recohort_raw %>% filter(id == 1075) %>% pull(full))[[1]]
+
+
+selected_listing_sf <- 
+  combined_listings %>%
+  filter(listing_id %in% listing_filter) %>%
+  select(listing_id, longitude, latitude) %>%
+  collect() %>%
+  sf::st_as_sf(
+    coords = c("longitude", "latitude"),
+    crs    = 4326,
+    na.fail = F
+  )
+
+mapview::mapview(
+  selected_listing_sf,
+  color      = "white",
+  layer.name = "Listings",
+  legend      = F,
+  map.types  = c("CartoDB.Positron", "CartoDB.DarkMatter"),
+  basemaps.color.shuffle = F)
+```
+
+
+
+
+# --
 # 1.0 DATA PREP
 
 ## Prepare Data for Joining after Loop
@@ -112,14 +146,19 @@ art_listing_full_comps_tbl <-
 ```
 
 
+## Inner Join with Active Listings only
 ```{r}
+combined_active <- tbl(ds_conn, "combined_active")
+
+
 # full data only 
 full_extract_longer <- 
   art_listing_full_comps_tbl %>%
   select(-comps) %>%
   unnest(full) %>%
   rename(listing_id = full) %>%
-  mutate(type = "full")
+  mutate(type = "full") %>%
+  inner_join(combined_active, by = "listing_id", copy = T) 
 
 
 
@@ -129,13 +168,15 @@ comps_extract_longer <-
   select(-full) %>%
   unnest(comps) %>%
   rename(listing_id = comps) %>%
-  mutate(type = "comps")
+  mutate(type = "comps") %>%
+  inner_join(combined_active, by = "listing_id", copy = T) 
 
 
 
 # this is your full tbl that you will use to join after the for loop
-full_comps_extract_longer <- full_extract_longer %>%
-  bind_rows(comps_extract_longer)
+full_comps_extract_longer <- 
+  bind_rows(full_extract_longer, comps_extract_longer)
+
 ```
 
 
@@ -146,8 +187,9 @@ full_comps_extract_longer <- full_extract_longer %>%
 
 ## Unique listing_id
 ```{r}
-# get unique listing_ids
-unique_listing_ids <- full_extract_longer %>%
+# get unique, active listing_ids only
+unique_listing_ids <- 
+  full_extract_longer %>%
   bind_rows(comps_extract_longer) %>%
   distinct(listing_id, .keep_all = F) %>%
   rowid_to_column(var = "identifier")
@@ -241,31 +283,40 @@ geomarket_grouped_extract <- listing_descriptive_details %>%
 
 ## Join with Original Table
 ```{r}
-
-geomarket_full_comps_details_tbl <- full_comps_extract_longer %>%
+geomarket_full_comps_details_tbl <- 
+  full_comps_extract_longer %>%
   left_join(geomarket_grouped_extract, by = "listing_id") %>%
   relocate(listing_id) %>%
   drop_na(bedrooms)
-
 ```
 
 
 
+## Create unique listings table
+```{r}
+distinct_listings_tbl <- 
+  geomarket_full_comps_details_tbl %>%
+  select(listing_id, mean_rate, bedrooms, bathrooms, sleeps, room_type, latitude, longitude) %>%
+  distinct(listing_id, .keep_all = T) %>%
+  rename(
+    beds = bedrooms,
+    full_baths = bathrooms,
+    guests = sleeps,
+    adr = mean_rate)
+```
+
 
 # --
-# 3.0 SAVE & DISCONNECT
+# 3.0 SAVE
 
 ```{r}
-
-# connect & upload
 ds_conn <- 
-  DBI::dbConnect(
+  dbConnect(
     RMariaDB::MariaDB(),
-    host     = "rented-datascience.ccem57tyvghb.us-west-2.rds.amazonaws.com",
-    dbname   = "rentaldata_dev",
-    username = "david",
-    password = "NZg*2ptvQ@X$uR"
-  )
+    host     = config$ds_conn$host,
+    dbname   = config$ds_conn$dbname,
+    username = config$ds_conn$uid,
+    password = config$ds_conn$pwd)
 
 
 ## handy-dandy function
@@ -288,8 +339,19 @@ dbWriteTableMySQLFast(
   df       = geomarket_full_comps_details_tbl, 
   tbl_name = "00_kdd_comps_full_geomarket_details_tbl"
 )
+
+
+dbWriteTableMySQLFast(
+  conn     = ds_conn, 
+  df       = distinct_listings_tbl, 
+  tbl_name = "00_kdd_distinct_listings_tbl"
+)
 ```
 
+
+```{r}
+DBI::dbDisconnect(ds_conn)
+```
 
 
 
@@ -307,14 +369,6 @@ write_parquet(geomarket_full_comps_details_tbl, "C:\\Users\\DavidStephens\\Deskt
 write_parquet(geomarket_full_comps_details_tbl, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\archive\\{date}_kdd_comps_full_geomarket_details_tbl.parquet"))
 ```
 
-
-
-
-
-## Disconnect SQL
-```{r}
-dbDisconnect(ds_conn)
-```
 
 
 

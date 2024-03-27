@@ -6,7 +6,7 @@ library(tidyverse)
 date_time <- blastula::add_readable_time()
 
 
-link_compset_tool <- "https://msv-analytics.shinyapps.io/user_compset_selection_tool_ueV6tc76nFqBm8ufjHHFWrHbg1QyoVSR/"
+link_app <- "https://msv-analytics.shinyapps.io/shiny-user-selected-comps-7Fq8btlQRVIGr0JjeHZ1GsU7krvWXHcv/"
 
 
 
@@ -19,14 +19,13 @@ rsconnect::setAccountInfo(
 
 # Compset Selection Tool
 rsconnect::deployApp(
-  appDir = "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny",
-  appName = "user_compset_selection_tool_ueV6tc76nFqBm8ufjHHFWrHbg1QyoVSR",
-  appFiles = c('shiny_user_compset_selection.Rmd',
-               'R/ds1_all_functions_v_1_8.R',
+  appDir = "C:\\Users\\DavidStephens\\Desktop\\Github\\shiny-user-selected-comps",
+  appName = "shiny-user-selected-comps-7Fq8btlQRVIGr0JjeHZ1GsU7krvWXHcv",
+  appFiles = c('global.R',
+               'ui.R',
+               'server.R',
                'www/tns-small.png',
-               'config.yml',
-               'kdd_comps_full_geomarket_details_tbl.parquet',
-               'art_listing_ids_cleaned.parquet'
+               'config.yml'
   ),
   server = 'shinyapps.io',
   forceUpdate = T,
@@ -41,9 +40,9 @@ body_text <-
   blastula::md(stringr::str_glue(
     "Good news!
 
-    The **Compset Selection Tool** was successfully deployed on {date_time}.
+    The **Full Shiny App: User-Selected Compsets** was successfully deployed on {date_time}.
 
-    {link_compset_tool}"
+    {link_app}"
   ))
 
 email <- blastula::compose_email(body = body_text)
@@ -55,7 +54,7 @@ email %>%
   blastula::smtp_send(
     from        = "dstephens@tnsinc.com",
     to          = "dstephens@tnsinc.com",
-    subject     = stringr::str_glue("Shiny: Compset Selection Tool"),
+    subject     = stringr::str_glue("Full Shiny: User-Selected Compsets"),
     credentials = blastula::creds_file(file = "C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\gmail_creds"))
 
 

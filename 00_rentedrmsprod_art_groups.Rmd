@@ -30,17 +30,17 @@ library(blastula)
 date <- today()
 options(scipen = 9999)
 
+config_path <- Sys.getenv("CONFIG_PATH")
+config <- config::get(file = config_path)
 
-PROD_HOST    <- Sys.getenv("PROD_HOST")
-PROD_DB_NAME <- Sys.getenv("PROD_DB_NAME")
-PROD_ID      <- Sys.getenv("PROD_ID")
-PROD_PW      <- Sys.getenv("PROD_PW")
 
-prod_conn <- dbConnect(RMariaDB::MariaDB(),
-                        host     = PROD_HOST,
-                        dbname   = PROD_DB_NAME,
-                        username = PROD_ID,
-                        password = PROD_PW)
+prod_conn <-
+  dbConnect(
+    RMariaDB::MariaDB(),
+    host     = config$prod_conn$host,
+    dbname   = config$prod_conn$dbname,
+    username = config$prod_conn$uid,
+    password = config$prod_conn$pwd)
 
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -139,18 +139,17 @@ art_groups_unnested <- listings_extract_tbl %>%
 
 
 
-# 2.0 SAVE & DISCONNECT
+# 2.0 SAVE
 
 ## Save to db
 ```{r}
 ds_conn <- 
-  DBI::dbConnect(
+  dbConnect(
     RMariaDB::MariaDB(),
-    host     = "rented-datascience.ccem57tyvghb.us-west-2.rds.amazonaws.com",
-    dbname   = "rentaldata_dev",
-    username = "david",
-    password = "NZg*2ptvQ@X$uR"
-  )
+    host     = config$ds_conn$host,
+    dbname   = config$ds_conn$dbname,
+    username = config$ds_conn$uid,
+    password = config$ds_conn$pwd)
 
 
 ## handy little function
@@ -174,10 +173,16 @@ dbWriteTableMySQLFast(
   tbl_name = "00_art_groups_cleaned"
 )
 
-
-# disconnect
-dbDisconnect(ds_conn)
 ```
+
+
+
+```{r}
+DBI::dbDisconnect(prod_conn)
+DBI::dbDisconnect(ds_conn)
+```
+
+
 
 
 ## Save as parquet
@@ -194,13 +199,6 @@ write_rds(art_groups_unnested, "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_
 # time-stamped archive file
 write_rds(art_groups_unnested, str_glue("C:\\Users\\DavidStephens\\Desktop\\Github\\scheduled\\00_data\\archive\\{date}_art_groups_cleaned.rds"))
 ```
-
-
-## Disconnect SQL
-```{r}
-dbDisconnect(prod_conn)
-```
-
 
 
 

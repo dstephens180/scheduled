@@ -22,10 +22,11 @@ rsconnect::deployApp(
   appDir = "C:\\Users\\DavidStephens\\Desktop\\Github\\artr_replica\\shiny",
   appName = "data_healthcheck_q9c3n0JK7KyvPoxbD2FyKN1fWAlws8qz",
   appFiles = c('shiny_external_data_healtcheck.Rmd',
+               '02_geocode/art_listings_geocode_cleaned.rds',
                'www/tns-small.png',
+               'config.yml',
                'art_listing_ids_cleaned.parquet',
-               'kdd_comps_full_geomarket_details_tbl.parquet',
-               '02_geocode/art_listings_geocode_cleaned.rds'
+               'kdd_comps_full_geomarket_details_tbl.parquet'
   ),
   server = 'shinyapps.io',
   forceUpdate = T,
